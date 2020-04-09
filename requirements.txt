@@ -10,3 +10,9 @@ schedule
 geopy
 fake-useragent
 googletransx
+notebook
+nest_asyncio
+hydra-core
+psycopg2
+newspaper3k
+feedparser

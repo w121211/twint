@@ -1,0 +1,9 @@
+db:
+  # driver: postgresql
+  user: sqlpad
+  password: sqlpad
+  host: pg
+  dbname: test
+csv:
+  # path: ./resource/rss.csv
+  path: ./rss/resource/rss.csv

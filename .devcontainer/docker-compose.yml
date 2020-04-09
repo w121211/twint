@@ -1,0 +1,75 @@
+version: '3'
+
+services:
+  app:
+    # Uncomment the next line to use a non-root user for all processes. You can also
+    # simply use the "remoteUser" property in devcontainer.json if you just want
+    # VS Code and its sub-processes (terminals, tasks, debugging) to execute as the user
+    # On Linux, you may need to update the USER_UID and USER_GID in .devcontainer/Dockerfile 
+    # to match your user if not 1000. See https://aka.ms/vscode-remote/containers/non-root for details.
+    # user: vscode
+
+    build: 
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+
+    volumes:
+      - ../..:/workspace:cached
+    ports:
+      - 8888:8888
+      
+    # command: sleep infinity
+    command: bash -c "jupyter notebook --ip 0.0.0.0 --port 8888 --no-browser --allow-root && sleep infinity"
+    
+  es:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.6.1
+    # container_name: es01
+    environment:
+      - discovery.type=single-node
+      # - node.name=es01
+      # - cluster.name=es-docker-cluster
+      # - discovery.seed_hosts=es02,es03
+      # - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data01:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+      # - 9300:9300
+
+  pg:
+      image: postgres:latest
+      restart: unless-stopped
+      # ports: 
+      #   - 5432:5432
+      environment:
+        # POSTGRES_PASSWORD: LocalPassword
+        POSTGRES_USER: sqlpad
+        POSTGRES_PASSWORD: sqlpad
+
+  sqlpad:
+    image: sqlpad/sqlpad:latest
+    restart: unless-stopped
+    hostname: sqlpad
+    ports:
+      - 3000:3000
+    environment:
+      - SQLPAD_DEBUG=TRUE
+    volumes:
+      # This maps /var/lib/sqlpad directory inside sqlpad container to a directory docker host (your laptop, desktop, etc)
+      # This allows your SQLPad data to exist across container shutdowns
+      # For this to work, the path here `~/docker-volumes` must be shared with docker
+      - ~/docker-volumes/sqlpad-postgres:/var/lib/sqlpad
+    
+volumes:
+  data01:
+    driver: local
+  # data02:
+  #   driver: local
+  # data03:
+  #   driver: local
