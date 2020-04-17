@@ -16,3 +16,4 @@ hydra-core
 psycopg2
 newspaper3k
 feedparser
+peewee

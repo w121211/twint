@@ -109,7 +109,7 @@ ENV/
 
 # output
 *.csv
-*.json
+# *.json
 *.txt
 
 outputs/
