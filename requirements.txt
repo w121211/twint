@@ -17,3 +17,7 @@ psycopg2
 newspaper3k
 feedparser
 peewee
+elasticsearch-dsl>=7.0.0,<8.0.0
+pytest
+requests
+requests-cache

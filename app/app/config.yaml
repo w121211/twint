@@ -1,0 +1,30 @@
+run:
+  scraper: cnbc
+  # n_batch: 50
+  n_workers: 3
+
+store:
+  es:
+    host: 'es:9200'
+  db:
+    # driver: postgresql
+    user: sqlpad
+    password: sqlpad
+    host: pg
+    dbname: test
+  # csv:
+  #   # path: ./resource/rss.csv
+  #   path: ./rss/resource/rss.csv
+
+scraper:
+  rss:
+    fetch_rss_every_n_seconds: 172800  # hold maximum 2 days for refetch
+    csv:
+      path: ./resource/rss.csv
+  cnbc:
+    store: es
+  
+
+    
+
+

@@ -5,23 +5,29 @@ import logging
 import sys
 import time
 from typing import Tuple, List
+from dataclasses import dataclass
 
-import aiohttp
-import feedparser
-import hydra
-import pandas as pd
-from hydra import utils
-from omegaconf import DictConfig
 from newspaper import Article, ArticleException
 
-from .store import db, create_tables, seed, Rss, RssShot
+# from app.store import es
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.StreamHandler(sys.stdout))
 
 
-class NoRssEntries(Exception):
-    pass
+def parse(resp, html):
+    article = Article(str(resp.url))
+    article.set_html(html)
+    article.parse()
+    return article
+    # try:
+    #     article = Article(str(resp.url))
+    #     article.set_html(html)
+    #     article.parse()
+    #     return article
+    # except ArticleException as e:
+    #     log.debug(e)
+    # return None
 
 
 # def save_rss_item(db: PostgresqlDatabase, entry: Entry, rss: feedparser.FeedParserDict) -> None:
@@ -51,55 +57,99 @@ class NoRssEntries(Exception):
 #                 page = Page.create(**data)
 
 
-# async def scrape_page(entry: Entry, item: feedparser.FeedParserDict) -> Page:
-#     try:
-#         page = Page.get(url=item['link'])
+async def scrape_page(entry: Entry, item: feedparser.FeedParserDict) -> Page:
+    try:
+        page = Page.get(url=item['link'])
 
-#         # add rss tikcer
-#         tks = page.rss_tickers.split(",")
-#         if entry.ticker is not None and entry.ticker not in tks:
-#             tks += [entry.ticker]
-#             query = Page.update(
-#                 tickers=','.join(tks),
-#                 updated_at=datetime.datetime.now()
-#             ).where(Page.id == page.id)
-#             query.execute()
-#         return page
+        # add rss tikcer
+        tks = page.rss_tickers.split(",")
+        if entry.ticker is not None and entry.ticker not in tks:
+            tks += [entry.ticker]
+            query = Page.update(
+                tickers=','.join(tks),
+                updated_at=datetime.datetime.now()
+            ).where(Page.id == page.id)
+            query.execute()
+        return page
 
-#     except Page.DoesNotExist:
-#         try:
-#             async with aiohttp.ClientSession() as sess:
-#                 async with sess.get(item['link']) as resp:
-#                     html = await resp.text()
-#         except aiohttp.ClientError as e:
-#             log.error(e)
-#             html = None
+    except Page.DoesNotExist:
+        try:
+            async with aiohttp.ClientSession() as sess:
+                async with sess.get(item['link']) as resp:
+                    html = await resp.text()
+        except aiohttp.ClientError as e:
+            log.error(e)
+            html = None
 
-#         data = dict(
-#             url=item['link'],
-#             rss_title=item['title'],
-#             rss_summary=item['summary'],
-#             rss_published_at=item['published_at'],
-#             rss_tickers=entry['ticker'],
-#             raw=html,
-#             fetched_at=datetime.datetime.now())
-#         try:
-#             article = Article(item['link'])
-#             article.set_html(html)
-#             article.parse()
-#             data = dict(** data,
-#                         parsed_title=article.title,
-#                         parsed_text=article.text,
-#                         parsed_published_at=article.publish_date)
-#         except ArticleException as e:
-#             log.debug(e)
-#         finally:
-#             page = Page.create(**data)
-#         return page
+        data = dict(
+            url=item['link'],
+            rss_title=item['title'],
+            rss_summary=item['summary'],
+            rss_published_at=item['published_at'],
+            rss_tickers=entry['ticker'],
+            raw=html,
+            fetched_at=datetime.datetime.now())
+        try:
+            article = Article(item['link'])
+            article.set_html(html)
+            article.parse()
+            data = dict(** data,
+                        parsed_title=article.title,
+                        parsed_text=article.text,
+                        parsed_published_at=article.publish_date)
+        except ArticleException as e:
+            log.debug(e)
+        finally:
+            page = Page.create(**data)
+        return page
+
+
+def parse(html: str):
+    pass
+
+
+async def scrape_cnbc(tweet: Tweet, cfg: DictConfig):
+    def _parse(html: str):
+        data = dict(
+            url=item['link'],
+            rss_title=item['title'],
+            rss_summary=item['summary'],
+            rss_published_at=item['published_at'],
+            rss_tickers=entry['ticker'],
+            raw=html,
+            fetched_at=datetime.datetime.now())
+        try:
+            article = Article(item['link'])
+            article.set_html(html)
+            article.parse()
+            data = dict(** data,
+                        parsed_title=article.title,
+                        parsed_text=article.text,
+                        parsed_published_at=article.publish_date)
+        except ArticleException as e:
+            log.debug(e)
+        finally:
+            page = Page.create(**data)
+
+    for l in tweet.links:
+        if len(page.search(url=l)) > 0:
+            continue
+        async with aiohttp.ClientSession() as sess:
+            async with sess.get(l) as resp:
+                page = _parse(await resp.text())
+
+                # log.debug("{}: {}".format(rss.url, resp.status))
+                # feed, freq, last_published_at = _parse_rss(await resp.text())
+                # query = Rss.update(
+                #     freq=freq,
+                #     # last_published_at=last_published_at,
+                #     fetched_at=datetime.datetime.now()
+                # ).where(Rss.id == rss.id)
+                # query.execute()
+                # return feed
 
 
 async def scrape_rss(rss: Rss, cfg: DictConfig) -> feedparser.FeedParserDict:
-
     def _parse_rss(html: str):
         feed = feedparser.parse(html)
         if len(feed['entries']) == 0:

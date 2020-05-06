@@ -12,10 +12,9 @@ services:
     build: 
       context: ..
       dockerfile: .devcontainer/Dockerfile
-
+    
     volumes:
       - ../..:/workspace:cached
-
     ports:
       - 8888:8888
       
@@ -42,26 +41,32 @@ services:
     ports:
       - 9200:9200
       # - 9300:9300
-
-  pg:
-    image: postgres:latest
-    # container_name: pg01
-    restart: unless-stopped
+  
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.6.2
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
-
-  pgadmin:
-    image: dpage/pgadmin4
-    # container_name: pgadmin01
-    restart: unless-stopped
-    depends_on:
-    - pg
+      SERVER_NAME: localhost
+      ELASTICSEARCH_HOSTS: http://es:9200
     ports:
-    - 5050:80
-    environment:
-      PGADMIN_DEFAULT_EMAIL: pgadmin@example.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      - 5601:5601
+
+  # pg:
+  #   image: postgres:latest
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgrespassword
+
+  # pgadmin:
+  #   image: dpage/pgadmin4
+  #   restart: unless-stopped
+  #   depends_on:
+  #   - pg
+  #   ports:
+  #   - 5050:80
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: pgadmin@example.com
+  #     PGADMIN_DEFAULT_PASSWORD: admin
     
 volumes:
   data01:
