@@ -1,34 +1,30 @@
 import asyncio
 import datetime
-import json
 import logging
-import sys
-import time
-from typing import Tuple, List
 
-import aiohttp
-import feedparser
 import hydra
-import pandas as pd
-from hydra import utils
 from omegaconf import DictConfig
-from newspaper import Article, ArticleException
 
 # from .scrapers import cnbc, rss
-from . import scrapers
-
+from .scrapers import cnyes
 # log = logging.getLogger(__name__)
 # log.addHandler(logging.StreamHandler(sys.stdout))
 
 
 @hydra.main(config_path="config.yaml")
 def main(cfg: DictConfig) -> None:
+    logging.getLogger("elasticsearch").setLevel(logging.CRITICAL)
+
     # scp = scrapers.RssScraper(cfg.scraper.rss)
-    scp = scrapers.CnyesApiScraper()
+    scp = cnyes.CnyesApiScraper()
+    # scp = cnyes.CnyesPageScraper(cfg)
 
     asyncio.run(
-        scp.run(start=datetime.datetime.now() - datetime.timedelta(days=1),
-                n_workers=cfg.run.n_workers,)
+        scp.run(
+            start=datetime.datetime(2020, 5, 5),
+            # until=datetime.datetime(2010, 3, 1),
+            n_workers=cfg.run.n_workers,
+        )
     )
 
 

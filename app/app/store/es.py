@@ -1,8 +1,8 @@
 from __future__ import annotations
 import datetime
 import json
-# from elasticsearch_dsl import Search
-# from elasticsearch import Elasticsearch
+from typing import Iterable
+
 import elasticsearch
 from elasticsearch_dsl import connections, Document, Date, Keyword, Q, Search, Text, Range, Integer
 
@@ -61,7 +61,7 @@ class Page(Document):
     article_published_at = Date()
     article_title = Text()
     article_text = Text()
-    article_html = Text()
+    article_html = Text()  # clean_top_node
     parsed = Text()  # JSON for flexible data format
     created_at = Date(required=True)
     fetched_at = Date()  # null for not-yet-fetched
@@ -74,8 +74,10 @@ class Page(Document):
         }
 
     def save(self, **kwargs):
-        self.meta.id = self.from_url
-        self.created_at = datetime.datetime.now()
+        if 'id' not in self.meta:
+            self.meta.id = self.from_url
+        if self.created_at is None:
+            self.created_at = datetime.datetime.now()
         return super().save(**kwargs)
 
     # @classmethod
@@ -99,6 +101,14 @@ class Page(Document):
             page = cls(from_url=url)
             page.save()
         return page
+
+    @classmethod
+    def scan_urls(cls, domain) -> Iterable[str]:
+        s = cls.search()
+        q = Q('wildcard', from_url=f'*{domain}*') \
+            & ~Q("term", http_status=200)
+        for page in s.filter(q).scan():
+            yield page.from_url
 
 
 def seed():

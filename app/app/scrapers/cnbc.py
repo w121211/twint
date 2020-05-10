@@ -8,10 +8,14 @@ import urllib
 from typing import Tuple, List, Iterable
 
 import aiohttp
+import elasticsearch
+import pandas as pd
 from lxml import etree
 from newspaper import Article
 from omegaconf import DictConfig
+from fake_useragent import UserAgent
 
+from .base import BaseScraper
 from .. import fetch
 from ..store import es
 
@@ -33,7 +37,7 @@ class Parsed:
     tickers: List[_Ticker] = dataclasses.field(default_factory=list)
 
 
-def _parse_tickers(node: etree.Element) -> List[_Ticker]:
+def parse_tickers(node: etree.Element) -> List[_Ticker]:
     tickers = []
 
     # find all <a> and de-duplicate their parents
@@ -56,78 +60,77 @@ def _parse_tickers(node: etree.Element) -> List[_Ticker]:
     return tickers
 
 
-def parse(resp, html) -> es.Page:
-    article = Article(str(resp.url))
-    article.set_html(html)
-    article.parse()
-    parsed = Parsed(keywords=article.meta_keywords,
-                    tickers=_parse_tickers(article.clean_top_node))
-    return es.Page(
-        resolved_url=str(resp.url),
-        status=resp.status,
-        article_published_at=article.publish_date,
-        article_title=article.title,
-        article_text=article.text,
-        article_metadata=json.dumps(article.meta_data),
-        article_html=etree.tostring(
-            article.clean_top_node, encoding='utf-8').decode('utf-8'),
-        parsed=json.dumps(dataclasses.asdict(parsed))
-    )
+class CnbcScraper(BaseScraper):
+    def __init__(self, cfg: DictConfig = None):
+        super().__init__(cfg)
 
+    def parse(self, from_url: str, resp: aiohttp.ClientResponse, html: str) -> es.Page:
+        article = Article(str(resp.url))
+        article.set_html(html)
+        article.parse()
+        parsed = Parsed(
+            keywords=article.meta_keywords,
+            tickers=parse_tickers(article.clean_top_node))
+        page = es.Page(
+            from_url=from_url,
+            resolved_url=str(resp.url),
+            http_status=resp.status,
+            article_metadata=json.dumps(article.meta_data),
+            article_published_at=article.publish_date,
+            article_title=article.title,
+            article_text=article.text,
+            article_html=etree.tostring(
+                article.clean_top_node, encoding='utf-8').decode('utf-8'),
+            parsed=json.dumps(dataclasses.asdict(parsed)),
+            fetched_at=datetime.datetime.now(),)
+        page.save()
 
-def source() -> Iterable[str]:
-    for hit in es.scan_twint('ReutersBiz'):
-        for u in hit.urls:
-            yield u
+    def startpoints(self) -> Iterable[str]:
+        for hit in es.scan_twint('ReutersBiz'):
+            for u in hit.urls:
+                yield u
 
+    async def worker(self, queue: asyncio.Queue):
+        ua = UserAgent(verify_ssl=False, use_cache_server=False).random
+        async with aiohttp.ClientSession(raise_for_status=True, headers=[("User-Agent", ua)]) as sess:
+            while True:
+                url = await queue.get()
+                try:
+                    es.Page.get(id=url)
+                    log.info('page existed, skip {}'.format(url))
+                except elasticsearch.NotFoundError:
+                    try:
+                        # resp, html = await fetch.get(url)
+                        async with sess.get(url) as resp:
+                            html = await resp.text()
+                            self.parse(url, resp, html)
+                            log.info('page scraped {}'.format(url))
+                    except aiohttp.ClientResponseError as e:
+                        page = es.Page(
+                            from_url=url,
+                            resolved_url=str(e.request_info.real_url),
+                            http_status=e.status,)
+                        page.save()
+                        log.info("fetch error & skiped: {}".format(e))
+                        log.error(e)
+                        self.error_urls.append(url)
+                finally:
+                    queue.task_done()
 
-async def run(cfg: DictConfig):
-    es.init()
+    async def run(self, n_workers=1, *args, **kwargs):
+        queue = asyncio.Queue()
+        es.init()
 
-    async def _scrape(i, url):
-        if es.Page.is_existed(src_url=url):
-            log.info('{} page existed, skip {}'.format(i, url))
-            return
-        try:
-            resp, html = await fetch.get(url)
-            page = parse(resp, html)
-            page.src_url = url
-            page.save()
-            log.info('{} page saved {}'.format(i, url))
-        except aiohttp.ClientResponseError as e:
-            page = es.Page(
-                src_url=url,
-                resolved_url=str(e.request_info.real_url),
-                status=e.status,)
-            page.save()
-            log.info("{} skip: {}".format(i, e))
+        for url in self.startpoints(*args, **kwargs):
+            queue.put_nowait(url)
+        tasks = [asyncio.create_task(self.worker(queue))
+                 for _ in range(n_workers)]
 
-    # for i, url in enumerate(source()):
-    #     if i >= 3:
-    #         break
-    #     if es.Page.is_existed(src_url=url):
-    #         log.debug('{} skip {}'.format(i, url))
-    #         continue
-    #     log.debug('{} fetch {}'.format(i, url))
-    #     resp, html = await fetch.fetch_url(url)
-    #     page = parse(resp, html)
-    #     page.src_url = url
-    #     page.save()
+        await queue.join()
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        # await asyncio.gather(*tasks)
 
-    urls = []
-    for i, url in enumerate(source()):
-        if i > 10:
-            break
-        urls.append(url)
-    await asyncio.gather(*[_scrape(i, url) for i, url in enumerate(urls)])
-    # await asyncio.gather(*[_scrape(i, url) for i, url in enumerate(source())])
-
-
-# def runner(source: Callable[[], Iterable[str]],
-#            fetch: Callable[[str], Tuple[aiohttp.ClientResponse, str]],
-#            parse: Callable[[aiohttp.ClientResponse, str], dict],
-#            store):
-#     for url in source():
-#         resp, html = fetch(url)
-#         parsed = parse(resp, html)
-#         stored = store(parsed)
+        df = pd.DataFrame({'url': self.error_urls})
+        df.to_csv("./error_urls.csv", index=False)
