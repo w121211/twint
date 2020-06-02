@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import json
 import logging
+import math
 import sys
 import time
 from typing import Tuple, List
@@ -116,10 +117,10 @@ class RssScraper:
                   for d in feed['entries']]
         stamps.sort()
         if len(stamps) == 1:
-            freq = self.cfg.fetch_rss_every_n_seconds
+            freq = self.cfg.scraper.rss.fetch_rss_every_n_seconds
         else:
             freq = int(min((stamps[-1] - stamps[0]).total_seconds() / 3,
-                           self.cfg.fetch_rss_every_n_seconds))
+                           self.cfg.scraper.rss.fetch_rss_every_n_seconds))
         rss.update(
             freq=freq,
             n_retries=0,
@@ -130,50 +131,62 @@ class RssScraper:
         # create or update pages (as entrypoints, no-fetching)
         for e in feed["entries"]:
             page = es.Page.get_or_create(e["link"])
-            tickers = page.rss_tickers or []
+
+            tickers = page.entry_tickers or []
             if rss.ticker is not None:
-                tickers.append(rss.ticker)
+                tickers = set(tickers)
+                tickers.add(rss.ticker)
+
+            urls = page.entry_urls or []
+            urls = set(urls)
+            urls.add(rss.url)
+
             page.update(
                 from_url=e["link"],
-                rss_title=e["title"],
-                rss_summary=e["summary"],
-                rss_published_at=datetime.datetime.fromtimestamp(
+                entry_title=e["title"],
+                entry_summary=e["summary"],
+                entry_published_at=datetime.datetime.fromtimestamp(
                     time.mktime(e['published_parsed'])),
-                rss_tickers=tickers,
+                entry_tickers=list(tickers),
+                entry_urls=list(urls),
             )
         # return pages
 
     async def scrape(self, url, ticker):
         rss = es.Rss.get_or_create(url, ticker)
-        if rss.fetched_at is not None:
+        if rss.fetched_at is not None and not self.cfg.scraper.rss.force_fetch:
             secs_to_sleep = (rss.fetched_at +
                              datetime.timedelta(seconds=rss.freq) -
                              datetime.datetime.now()
                              ).total_seconds()
             if secs_to_sleep > 0:
-                log.debug("{} sleep for {} second".format(
-                    rss.url, int(secs_to_sleep)))
+                log.info("sleep for {} second: {}".format(
+                    int(secs_to_sleep), rss.url))
                 await asyncio.sleep(secs_to_sleep)
         try:
+            log.info("fetching url: {}".format(rss.url))
             resp, html = await fetch.get(rss.url)
+
             self.parse(resp, html, rss)
+            log.info("parsed url: {}".format(rss.url))
         except (NoRssEntries, aiohttp.ClientError) as e:
             log.error(e)
             rss.update(fetched_at=datetime.datetime.now(),
                        n_retries=rss.n_retries + 1)
 
-    def entrypoints(self) -> Tuple[str, str]:
-        df = pd.read_csv(utils.to_absolute_path(self.cfg.csv.path))
+    def startpoints(self) -> Tuple[str, str]:
+        df = pd.read_csv(utils.to_absolute_path(self.cfg.scraper.rss.csv.path))
         for _, r in df.iterrows():
-            print(r['url'], r['ticker'])
-            yield r['url'], r['ticker']
+            tk = None if math.isnan(r['ticker']) else r['ticker']
+            print(r['url'], tk)
+            yield r['url'], tk
 
     async def run(self):
         es.init()
 
-        _entrypoints = []
-        for i, (url, ticker) in enumerate(self.entrypoints()):
+        _startpoints = []
+        for i, (url, ticker) in enumerate(self.startpoints()):
             if i > 10:
                 break
-            _entrypoints.append((url, ticker))
-        await asyncio.gather(*[self.scrape(url, ticker) for url, ticker in _entrypoints])
+            _startpoints.append((url, ticker))
+        await asyncio.gather(*[self.scrape(url, ticker) for url, ticker in _startpoints])

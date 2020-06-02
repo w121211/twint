@@ -1,7 +1,7 @@
 run:
   scraper: cnbc
   # n_batch: 50
-  n_workers: 3
+  n_workers: 1
 
 store:
   es:
@@ -20,7 +20,8 @@ scraper:
   rss:
     fetch_rss_every_n_seconds: 172800  # hold maximum 2 days for refetch
     csv:
-      path: ./resource/rss.csv
+      path: ./resource/rss_yahoo_tw.csv
+    force_fetch: true  # ignore sleep time
   cnbc:
     store: es
   

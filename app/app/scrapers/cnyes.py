@@ -20,6 +20,7 @@ from .. import fetch
 from .base import BasePageScraper, TickerText, Parsed
 
 log = logging.getLogger(__name__)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
 class CnyesApiScraper:
@@ -76,6 +77,7 @@ class CnyesApiScraper:
                         for u in new_urls:
                             queue.put_nowait(u)
                         log.info(f'scraped: {url}')
+                        await asyncio.sleep(30)
                 except aiohttp.ClientError as e:
                     log.error(e)
                     self.error_urls.append(url)

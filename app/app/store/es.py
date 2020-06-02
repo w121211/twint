@@ -34,6 +34,7 @@ class Rss(Document):
         try:
             rss = cls.get(id=url)
         except elasticsearch.NotFoundError:
+            # print(type(ticker))
             rss = cls(url=url, ticker=ticker)
             rss.save()
         return rss
@@ -52,10 +53,11 @@ class Page(Document):
     from_url = Keyword(required=True)
     resolved_url = Keyword()
     http_status = Integer()
+    entry_urls = Keyword()  # array
+    entry_tickers = Keyword()  # array
     entry_title = Text()
     entry_summary = Text()
     entry_published_at = Date()
-    entry_tickers = Keyword()  # array
     entry_meta = Text()
     article_metadata = Text()
     article_published_at = Date()

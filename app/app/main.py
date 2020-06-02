@@ -5,8 +5,8 @@ import logging
 import hydra
 from omegaconf import DictConfig
 
-# from .scrapers import cnbc, rss
-from .scrapers import cnyes
+from .scrapers import cnbc, rss, cnyes
+
 # log = logging.getLogger(__name__)
 # log.addHandler(logging.StreamHandler(sys.stdout))
 
@@ -18,6 +18,7 @@ def main(cfg: DictConfig) -> None:
     # scp = scrapers.RssScraper(cfg.scraper.rss)
     scp = cnyes.CnyesApiScraper()
     # scp = cnyes.CnyesPageScraper(cfg)
+    # scp = rss.RssScraper(cfg)
 
     asyncio.run(
         scp.run(
@@ -26,6 +27,8 @@ def main(cfg: DictConfig) -> None:
             n_workers=cfg.run.n_workers,
         )
     )
+
+    asyncio.run(scp.run())
 
 
 if __name__ == "__main__":
