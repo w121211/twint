@@ -147,7 +147,8 @@ def scan_twint(user: str,
         }
     })
     client = elasticsearch.Elasticsearch(['es:9200'])
-    s = Search(using=client, index="twinttweets").query(q)
+    s = Search(using=client, index="twinttweets").query(
+        q).filter("terms", username=[user])
     return s.scan()
 
 

@@ -1,7 +1,7 @@
 run:
   scraper: cnbc
   # n_batch: 50
-  n_workers: 1
+  n_workers: 3
 
 store:
   es:
@@ -24,6 +24,9 @@ scraper:
     force_fetch: true  # ignore sleep time
   cnbc:
     store: es
+
+proxy:
+  path: ./proxies.txt
   
 
     

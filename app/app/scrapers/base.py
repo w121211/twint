@@ -9,6 +9,7 @@ from typing import Tuple, Iterable, List
 
 import aiohttp
 import pandas as pd
+from hydra import utils
 from newspaper import Article
 from omegaconf import DictConfig
 from fake_useragent import UserAgent
@@ -40,6 +41,9 @@ class BaseScraper:
         super().__init__()
         self.cfg = cfg
         self.error_urls = []
+        self.proxies = pd.read_csv(
+            utils.to_absolute_path(cfg.proxy.path),
+            sep=" ", header=None)[0] if cfg.proxy.path is not None else None
 
     @abc.abstractmethod
     def parse(self, from_url: str, resp: aiohttp.ClientResponse, text: str):
