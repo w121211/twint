@@ -7,6 +7,9 @@ import elasticsearch
 from elasticsearch_dsl import connections, Document, Date, Keyword, Q, Search, Text, Range, Integer
 
 
+APP_ERROR_HTTP_STATUS = 9999  # app內部錯誤時使用
+
+
 class Rss(Document):
     url = Keyword(required=True)
     ticker = Keyword()

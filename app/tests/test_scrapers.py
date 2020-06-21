@@ -4,10 +4,12 @@ import requests
 import requests_cache
 from newspaper import Article
 from lxml import etree
+from hydra.experimental import compose, initialize
 
 # from app import scrapers
 from app.scrapers.base import TickerText
 from app.scrapers.cnyes import CnyesApiScraper, CnyesPageScraper
+from app.scrapers import cnbc
 from app.store import es
 
 # async def fetch_and_parse():
@@ -35,17 +37,11 @@ from app.store import es
 #             article.parse()
 #             return article, resp
 
-@pytest.fixture
-def article():
-    url = 'https://www.cnbc.com/2020/04/19/why-big-techs-coronavirus-goodwill-wont-help-in-antitrust-probes.html'
+@pytest.fixture(scope="module")
+def page_html(request):
     requests_cache.install_cache()
-    r = requests.get(url)
-    article = Article(url)
-    article.set_html(r.text)
-    article.parse()
-    # assert r.from_cache == True
-
-    return article
+    r = requests.get(request.param)
+    return r.text
 
 
 @pytest.fixture
@@ -136,3 +132,32 @@ def test_cnyes_page_tags(cnyes_page_html):
             text='光寶科 (2301-TW) 今 (9) 日傳出旗下工業自動化事業部裁員百人，對此，光寶科澄清，只是因應考核，進行的組織內部常態性調整，以內轉為優先，並非如外傳所說的裁員上百人。',
             labels=[('', '2301-TW')]
         )]
+
+
+@pytest.mark.parametrize('page_html,expected', [
+    # ('https://www.cnbc.com/2020/04/19/why-big-techs-coronavirus-goodwill-wont-help-in-antitrust-probes.html',
+    #  None),
+    ('http://cnb.cx/sytyjc', [])
+])
+def test_cnbc_page_tags(page_html, expected):
+    article = Article("http://test.url")
+    article.set_html(page_html)
+    article.parse()
+
+    initialize(config_dir="../app")
+    # cfg = compose("config.yaml")
+    # print(cfg)
+    # scp = cnbc.CnbcScraper(cfg)
+    # scp.parse()
+    assert cnbc.parse_tickers(arrticle.clean_top_node) == expected
+
+    # assert article.meta_keywords == None
+
+    # scp.
+    # assert scp._parse_keywords(cnyes_page_html) == [
+    #     '光寶科', 'LED', '資訊', '電源', '裁員']
+    # assert scp._parse_tickers(article.clean_top_node) == [
+    #     TickerText(
+    #         text='光寶科 (2301-TW) 今 (9) 日傳出旗下工業自動化事業部裁員百人，對此，光寶科澄清，只是因應考核，進行的組織內部常態性調整，以內轉為優先，並非如外傳所說的裁員上百人。',
+    #         labels=[('', '2301-TW')]
+    #     )]

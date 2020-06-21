@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 # log.addHandler(logging.StreamHandler(sys.stdout))
 
 ua = UserAgent(verify_ssl=False)
-ua.update()
+# ua.update()
 
 
 @dataclasses.dataclass
@@ -46,22 +46,23 @@ class Parsed:
 def parse_tickers(node: etree.Element) -> List[_Ticker]:
     tickers = []
 
-    # find all <a> and de-duplicate their parents
-    for p in set([e.getparent() for e in node.cssselect('a')]):
-        text = etree.tostring(
-            p, method='text', encoding='utf-8').decode('utf-8').strip()
-        tk = _Ticker(text)
+    if node is not None:
+        # find all <a> and de-duplicate their parents
+        for p in set([e.getparent() for e in node.cssselect('a')]):
+            text = etree.tostring(
+                p, method='text', encoding='utf-8').decode('utf-8').strip()
+            tk = _Ticker(text)
 
-        for a in p.cssselect('a'):
-            href = a.get('href')
-            queries = dict(urllib.parse.parse_qsl(
-                urllib.parse.urlsplit(href).query))
-            try:
-                tk.labels.append((a.text, queries['symbol']))
-            except KeyError:
-                continue
-        if len(tk.labels) > 0:
-            tickers.append(tk)
+            for a in p.cssselect('a'):
+                href = a.get('href')
+                queries = dict(urllib.parse.parse_qsl(
+                    urllib.parse.urlsplit(href).query))
+                try:
+                    tk.labels.append((a.text, queries['symbol']))
+                except KeyError:
+                    continue
+            if len(tk.labels) > 0:
+                tickers.append(tk)
 
     return tickers
 
@@ -117,8 +118,9 @@ class CnbcScraper(BaseScraper):
         if self.use_requests:
             await self._requests_worker(queue)
         else:
-            ua = UserAgent(verify_ssl=False, use_cache_server=False).random
-            async with aiohttp.ClientSession(raise_for_status=True, headers=[("User-Agent", ua)]) as sess:
+            async with aiohttp.ClientSession(
+                    raise_for_status=True, headers=[("User-Agent", ua.random)],
+                    timeout=aiohttp.ClientTimeout(total=60)) as sess:
                 while True:
                     url = await queue.get()
                     try:
@@ -128,8 +130,11 @@ class CnbcScraper(BaseScraper):
                         try:
                             # resp, html = await fetch.get(url)
                             async with sess.get(url) as resp:
+                                log.info('page fetching {}'.format(url))
                                 html = await resp.text()
+                                log.info('page downloaded {}'.format(url))
                                 self.parse(url, resp, html)
+                                await asyncio.sleep(3)
                                 log.info('page scraped {}'.format(url))
                         except aiohttp.ClientResponseError as e:
                             page = es.Page(
@@ -140,6 +145,10 @@ class CnbcScraper(BaseScraper):
                             log.info("fetch error & skiped: {}".format(e))
                             log.error(e)
                             self.error_urls.append(url)
+                    except Exception as e:
+                        log.info("scrape internal error & skiped: {}".format(e))
+                        log.error(e)
+                        self.error_urls.append(url)
                     finally:
                         queue.task_done()
 
@@ -148,7 +157,7 @@ class CnbcScraper(BaseScraper):
             p = random.choice(self.proxies)
             proxies = {"http": "http://{}".format(p),
                        "https": "http://{}".format(p)}
-            print(proxies)
+            proxies = None
 
         with requests.Session() as s:
             try:

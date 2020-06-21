@@ -27,7 +27,7 @@ def main(cfg: DictConfig) -> None:
     #     )
     # )
 
-    scp = cnbc.CnbcScraper(cfg, use_requests=True)
+    scp = cnbc.CnbcScraper(cfg, use_requests=False)
     asyncio.run(scp.run(cfg.run.n_workers))
 
 

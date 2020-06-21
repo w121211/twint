@@ -1,7 +1,7 @@
 run:
   scraper: cnbc
   # n_batch: 50
-  n_workers: 3
+  n_workers: 1
 
 store:
   es:
