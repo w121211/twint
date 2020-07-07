@@ -8,6 +8,7 @@ import urllib
 from typing import Tuple, Iterable, List
 
 import aiohttp
+import elasticsearch
 import pandas as pd
 from hydra import utils
 from newspaper import Article
@@ -19,6 +20,8 @@ from ..store import es
 from .. import fetch
 
 log = logging.getLogger(__name__)
+
+ua = UserAgent(verify_ssl=False)
 
 
 @dataclasses.dataclass
@@ -55,8 +58,7 @@ class BaseScraper:
         pass
 
     async def worker(self, queue: asyncio.Queue):
-        ua = UserAgent(verify_ssl=False, use_cache_server=False).random
-        async with aiohttp.ClientSession(raise_for_status=True, headers=[("User-Agent", ua)]) as sess:
+        async with aiohttp.ClientSession(raise_for_status=True, headers=[("User-Agent", ua.random)]) as sess:
             while True:
                 url = await queue.get()
                 try:
@@ -74,6 +76,8 @@ class BaseScraper:
                     queue.task_done()
 
     async def run(self, n_workers=1, *args, **kwargs):
+        log.info("scraper start running: {} workers".format(n_workers))
+
         queue = asyncio.Queue()
         es.init()
 
@@ -90,6 +94,8 @@ class BaseScraper:
 
         df = pd.DataFrame({'url': self.error_urls})
         df.to_csv("./error_urls.csv", index=False)
+
+        log.info("all jobs done.")
 
 
 class BasePageScraper(BaseScraper):
@@ -126,7 +132,7 @@ class BasePageScraper(BaseScraper):
             if i > 10:
                 break
 
-    def parse(self, from_url: str, resp: aiohttp.ClientResponse, text: str) -> es.Page:
+    def parse(self, from_url: str, resp: aiohttp.ClientResponse, html: str) -> es.Page:
         article = Article(str(resp.url))
         article.set_html(html)
         article.parse()
@@ -146,3 +152,45 @@ class BasePageScraper(BaseScraper):
             parsed=json.dumps(dataclasses.asdict(parsed)),
             fetched_at=datetime.datetime.now(),)
         page.save()
+
+    async def worker(self, queue: asyncio.Queue):
+        async with aiohttp.ClientSession(
+                raise_for_status=True,
+                headers=[("User-Agent", ua.random)],
+                timeout=aiohttp.ClientTimeout(total=60)) as sess:
+            while True:
+                url = await queue.get()
+                try:
+                    page = es.Page.get(id=url)
+                    if page.http_status != 200:
+                        raise elasticsearch.NotFoundError()
+                    log.info('page existed and scraped (code=200), skip {}'.format(url))
+                except elasticsearch.NotFoundError:
+                    try:
+                        async with sess.get(url) as resp:
+                            log.info('page fetching {}'.format(url))
+                            html = await resp.text()
+                            log.info('page downloaded {}'.format(url))
+                            self.parse(url, resp, html)
+                            log.info('page scraped {}'.format(url))
+                            await asyncio.sleep(3)
+                    except aiohttp.ClientResponseError as e:
+                        page = es.Page(
+                            from_url=url,
+                            resolved_url=str(e.request_info.real_url),
+                            http_status=e.status,)
+                        page.save()
+                        log.info("fetch error & skiped: {}".format(e))
+                        log.error(e)
+                        self.error_urls.append(url)
+                    except Exception as e:
+                        log.info(
+                            "scrape internal error & skiped: {}".format(e))
+                        log.error(e)
+                        self.error_urls.append(url)
+                except Exception as e:
+                    log.info("scrape internal error & skiped: {}".format(e))
+                    log.error(e)
+                    self.error_urls.append(url)
+                finally:
+                    queue.task_done()

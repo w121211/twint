@@ -72,10 +72,49 @@ class CnbcScraper(BaseScraper):
         super().__init__(cfg)
         self.use_requests = use_requests
 
+    def _requests_parse(self, from_url: str, resp: requests.Response, html: str) -> es.Page:
+        article = Article(str(resp.url))
+        article.set_html(html)
+        article.parse()
+
+        if article.clean_top_node is not None:
+            parsed = Parsed(
+                keywords=article.meta_keywords,
+                tickers=parse_tickers(article.clean_top_node))
+            article_html = etree.tostring(
+                article.clean_top_node, encoding='utf-8').decode('utf-8')
+        else:
+            parsed = Parsed(keywords=article.meta_keywords, tickers=[])
+            article_html = None
+
+        page = es.Page(
+            from_url=from_url,
+            resolved_url=str(resp.url),
+            http_status=resp.status_code,
+            article_metadata=json.dumps(article.meta_data),
+            article_published_at=article.publish_date,
+            article_title=article.title,
+            article_text=article.text,
+            article_html=article_html,
+            parsed=json.dumps(dataclasses.asdict(parsed)),
+            fetched_at=datetime.datetime.now(),)
+        page.save()
+
     def parse(self, from_url: str, resp: aiohttp.ClientResponse, html: str) -> es.Page:
         article = Article(str(resp.url))
         article.set_html(html)
         article.parse()
+
+        if article.clean_top_node is not None:
+            parsed = Parsed(
+                keywords=article.meta_keywords,
+                tickers=parse_tickers(article.clean_top_node))
+            article_html = etree.tostring(
+                article.clean_top_node, encoding='utf-8').decode('utf-8')
+        else:
+            parsed = Parsed(keywords=article.meta_keywords, tickers=[])
+            article_html = None
+
         parsed = Parsed(
             keywords=article.meta_keywords,
             tickers=parse_tickers(article.clean_top_node))
@@ -87,29 +126,7 @@ class CnbcScraper(BaseScraper):
             article_published_at=article.publish_date,
             article_title=article.title,
             article_text=article.text,
-            article_html=etree.tostring(
-                article.clean_top_node, encoding='utf-8').decode('utf-8'),
-            parsed=json.dumps(dataclasses.asdict(parsed)),
-            fetched_at=datetime.datetime.now(),)
-        page.save()
-
-    def _requests_parse(self, from_url: str, resp: requests.Response, html: str) -> es.Page:
-        article = Article(str(resp.url))
-        article.set_html(html)
-        article.parse()
-        parsed = Parsed(
-            keywords=article.meta_keywords,
-            tickers=parse_tickers(article.clean_top_node))
-        page = es.Page(
-            from_url=from_url,
-            resolved_url=str(resp.url),
-            http_status=resp.status_code,
-            article_metadata=json.dumps(article.meta_data),
-            article_published_at=article.publish_date,
-            article_title=article.title,
-            article_text=article.text,
-            article_html=etree.tostring(
-                article.clean_top_node, encoding='utf-8').decode('utf-8'),
+            article_html=article_html,
             parsed=json.dumps(dataclasses.asdict(parsed)),
             fetched_at=datetime.datetime.now(),)
         page.save()
@@ -119,7 +136,8 @@ class CnbcScraper(BaseScraper):
             await self._requests_worker(queue)
         else:
             async with aiohttp.ClientSession(
-                    raise_for_status=True, headers=[("User-Agent", ua.random)],
+                    raise_for_status=True, 
+                    headers=[("User-Agent", ua.random)],
                     timeout=aiohttp.ClientTimeout(total=60)) as sess:
                 while True:
                     url = await queue.get()
@@ -143,6 +161,11 @@ class CnbcScraper(BaseScraper):
                                 http_status=e.status,)
                             page.save()
                             log.info("fetch error & skiped: {}".format(e))
+                            log.error(e)
+                            self.error_urls.append(url)
+                        except Exception as e:
+                            log.info(
+                                "scrape internal error & skiped: {}".format(e))
                             log.error(e)
                             self.error_urls.append(url)
                     except Exception as e:
@@ -195,15 +218,18 @@ class CnbcScraper(BaseScraper):
                 queue.task_done()
 
     def startpoints(self) -> Iterable[str]:
+        yield "https://cnb.cx/2Vl4nts"
+        yield "http://cnb.cx/sytyjc"
         # i = 0
-        for hit in es.scan_twint('CNBC'):
-            if not hasattr(hit, "urls"):
-                continue
-            for u in hit.urls:
-                # i += 1
-                # if i > 30:
-                #     return
-                yield u
+        # for hit in es.scan_twint('CNBC'):
+        #     if not hasattr(hit, "urls"):
+        #         continue
+        #     for u in hit.urls:
+        #         # i += 1
+        #         # if i > 30:
+        #         #     return
+        #         yield u
+        # yield "http://cnb.cx/sytyjc"
 
     async def run(self, n_workers=1, *args, **kwargs):
         log.info("scraper start running: {} workers".format(n_workers))

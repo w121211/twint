@@ -16,9 +16,13 @@ def main(cfg: DictConfig) -> None:
     logging.getLogger("elasticsearch").setLevel(logging.CRITICAL)
 
     # scp = scrapers.RssScraper(cfg.scraper.rss)
-    # scp = cnyes.CnyesApiScraper()
-    # scp = cnyes.CnyesPageScraper(cfg)
     # scp = rss.RssScraper(cfg)
+
+    # scp = cnyes.CnyesApiScraper()
+    scp = cnyes.CnyesPageScraper(cfg)
+
+    # scp = cnbc.CnbcScraper(cfg, use_requests=False)
+
     # asyncio.run(
     #     scp.run(
     #         start=datetime.datetime(2020, 5, 5),
@@ -27,7 +31,6 @@ def main(cfg: DictConfig) -> None:
     #     )
     # )
 
-    scp = cnbc.CnbcScraper(cfg, use_requests=False)
     asyncio.run(scp.run(cfg.run.n_workers))
 
 

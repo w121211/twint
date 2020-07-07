@@ -8,7 +8,7 @@ from hydra.experimental import compose, initialize
 
 # from app import scrapers
 from app.scrapers.base import TickerText
-from app.scrapers.cnyes import CnyesApiScraper, CnyesPageScraper
+from app.scrapers import cnyes
 from app.scrapers import cnbc
 from app.store import es
 
@@ -36,6 +36,11 @@ from app.store import es
 #             article.set_html(await resp.text())
 #             article.parse()
 #             return article, resp
+
+@pytest.fixture
+def expected(request):
+    return request.param
+
 
 @pytest.fixture(scope="module")
 def page_html(request):
@@ -137,7 +142,8 @@ def test_cnyes_page_tags(cnyes_page_html):
 @pytest.mark.parametrize('page_html,expected', [
     # ('https://www.cnbc.com/2020/04/19/why-big-techs-coronavirus-goodwill-wont-help-in-antitrust-probes.html',
     #  None),
-    ('http://cnb.cx/sytyjc', [])
+    # ('http://cnb.cx/sytyjc', [])
+    ('https://cnb.cx/2Vl4nts', [])
 ])
 def test_cnbc_page_tags(page_html, expected):
     article = Article("http://test.url")
@@ -149,7 +155,38 @@ def test_cnbc_page_tags(page_html, expected):
     # print(cfg)
     # scp = cnbc.CnbcScraper(cfg)
     # scp.parse()
-    assert cnbc.parse_tickers(arrticle.clean_top_node) == expected
+    assert cnbc.parse_tickers(article.clean_top_node) == expected
+
+    # assert article.meta_keywords == None
+
+    # scp.
+    # assert scp._parse_keywords(cnyes_page_html) == [
+    #     '光寶科', 'LED', '資訊', '電源', '裁員']
+    # assert scp._parse_tickers(article.clean_top_node) == [
+    #     TickerText(
+    #         text='光寶科 (2301-TW) 今 (9) 日傳出旗下工業自動化事業部裁員百人，對此，光寶科澄清，只是因應考核，進行的組織內部常態性調整，以內轉為優先，並非如外傳所說的裁員上百人。',
+    #         labels=[('', '2301-TW')]
+    #     )]
+
+
+@pytest.mark.parametrize(
+    'page_html,expected',
+    [('https://news.cnyes.com/news/id/4484825',
+      ['美元匯價', '做空美元', '經濟重啟', '新冠疫情', '放空美元'])],
+    indirect=True)
+def test_cnyes_page_parse(page_html, expected):
+    # article = Article("http://test.url")
+    # article.set_html(page_html)
+    # article.parse()
+
+    # initialize(config_dir="../app")
+    # cfg = compose("config.yaml")
+    # print(cfg)
+    # scp = cnbc.CnbcScraper(cfg)
+    # scp.parse()
+    scp = cnyes.CnyesPageScraper()
+
+    assert scp._parse_keywords(page_html) == expected
 
     # assert article.meta_keywords == None
 

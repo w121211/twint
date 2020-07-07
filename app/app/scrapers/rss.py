@@ -3,9 +3,10 @@ import datetime
 import json
 import logging
 import math
+import random
 import sys
 import time
-from typing import Tuple, List
+from typing import Tuple, List, Iterable
 
 import aiohttp
 import feedparser
@@ -15,6 +16,7 @@ import elasticsearch
 from hydra import utils
 from omegaconf import DictConfig
 from newspaper import Article, ArticleException
+from fake_useragent import UserAgent
 
 from ..store import es
 from .. import fetch
@@ -22,6 +24,9 @@ from .. import fetch
 
 log = logging.getLogger(__name__)
 # log.addHandler(logging.StreamHandler(sys.stdout))
+ua = UserAgent(verify_ssl=False)
+data = pd.read_csv('../resource/proxies.txt', sep=" ", header=None)
+proxies = list(data[0])
 
 
 class NoRssEntries(Exception):
@@ -125,8 +130,7 @@ class RssScraper:
             freq=freq,
             n_retries=0,
             fetched_at=datetime.datetime.now(),
-            last_published_at=stamps[-1],
-        )
+            last_published_at=stamps[-1],)
 
         # create or update pages (as entrypoints, no-fetching)
         for e in feed["entries"]:
@@ -148,8 +152,7 @@ class RssScraper:
                 entry_published_at=datetime.datetime.fromtimestamp(
                     time.mktime(e['published_parsed'])),
                 entry_tickers=list(tickers),
-                entry_urls=list(urls),
-            )
+                entry_urls=list(urls),)
         # return pages
 
     async def scrape(self, url, ticker):
@@ -164,17 +167,29 @@ class RssScraper:
                     int(secs_to_sleep), rss.url))
                 await asyncio.sleep(secs_to_sleep)
         try:
-            log.info("fetching url: {}".format(rss.url))
-            resp, html = await fetch.get(rss.url)
+            log.info("start scraping: {}".format(rss.url))
+            async with aiohttp.ClientSession(
+                    raise_for_status=True,
+                    headers=[("User-Agent", ua.random)],
+                    timeout=aiohttp.ClientTimeout(total=60)) as sess:
 
-            self.parse(resp, html, rss)
-            log.info("parsed url: {}".format(rss.url))
+                proxy = random.choice(proxies).split(':')
+                async with sess.get(
+                        url,
+                        proxy="http://{}:{}".format(proxy[0], proxy[1]),
+                        proxy_auth=aiohttp.BasicAuth(proxy[2], proxy[3]),) as resp:
+                    html = await resp.text()
+                    resp, html = await fetch.get(rss.url)
+                    log.info("page downloaded: {}".format(rss.url))
+                    self.parse(resp, html, rss)
+                    log.info("page parsed & saved: {}".format(rss.url))
+
         except (NoRssEntries, aiohttp.ClientError) as e:
             log.error(e)
             rss.update(fetched_at=datetime.datetime.now(),
                        n_retries=rss.n_retries + 1)
 
-    def startpoints(self) -> Tuple[str, str]:
+    def startpoints(self) -> Iterable[Tuple[str, str]]:
         df = pd.read_csv(utils.to_absolute_path(self.cfg.scraper.rss.csv.path))
         for _, r in df.iterrows():
             tk = None if math.isnan(r['ticker']) else r['ticker']

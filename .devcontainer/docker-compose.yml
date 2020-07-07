@@ -37,7 +37,8 @@ services:
         soft: -1
         hard: -1
     volumes:
-      - data01:/usr/share/elasticsearch/data
+      - ~/docker-volumes/esdata:/usr/share/elasticsearch/data
+      # - data01:/usr/share/elasticsearch/data
     ports:
       - 9200:9200
       # - 9300:9300
@@ -68,9 +69,9 @@ services:
   #     PGADMIN_DEFAULT_EMAIL: pgadmin@example.com
   #     PGADMIN_DEFAULT_PASSWORD: admin
     
-volumes:
-  data01:
-    driver: local
+# volumes:
+#   data01:
+#     driver: local
   # data02:
   #   driver: local
   # data03:

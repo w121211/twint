@@ -1,5 +1,5 @@
 run:
-  scraper: cnbc
+  scraper: cnyes
   # n_batch: 50
   n_workers: 1
 

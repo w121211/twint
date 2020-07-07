@@ -131,14 +131,11 @@ class CnyesPageScraper(BasePageScraper):
 
     def _parse_keywords(self, html: str) -> List[str]:
         soup = BeautifulSoup(html, 'html.parser')
-        kws = []
-        for link in soup.find_all('a'):
-            href = link.get('href')
-            if href is not None:
-                m = self.kw_regex.search(href)
-                if m is not None:
-                    kws.append(m.group(1))
-        return kws
+        e = soup.select_one('meta[itemprop="keywords"]')
+        if e is not None:
+            return e['content'].split(",")
+        else:
+            return []
 
     def parse(self, from_url: str, resp: aiohttp.ClientResponse, html: str) -> es.Page:
         article = Article(str(resp.url))
