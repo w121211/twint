@@ -20,12 +20,13 @@ from fake_useragent import UserAgent
 
 from ..store import es
 from .. import fetch
+from .base import BaseScraper
 
 
 log = logging.getLogger(__name__)
 # log.addHandler(logging.StreamHandler(sys.stdout))
 ua = UserAgent(verify_ssl=False)
-data = pd.read_csv('../resource/proxies.txt', sep=" ", header=None)
+data = pd.read_csv('./resource/proxies.txt', sep=" ", header=None)
 proxies = list(data[0])
 
 
@@ -107,7 +108,7 @@ class NoRssEntries(Exception):
 #         return page
 
 
-class RssScraper:
+class RssScraper(BaseScraper):
     def __init__(self, cfg: DictConfig):
         super().__init__()
         self.cfg = cfg
@@ -155,53 +156,73 @@ class RssScraper:
                 entry_urls=list(urls),)
         # return pages
 
-    async def scrape(self, url, ticker):
-        rss = es.Rss.get_or_create(url, ticker)
-        if rss.fetched_at is not None and not self.cfg.scraper.rss.force_fetch:
-            secs_to_sleep = (rss.fetched_at +
-                             datetime.timedelta(seconds=rss.freq) -
-                             datetime.datetime.now()
-                             ).total_seconds()
-            if secs_to_sleep > 0:
-                log.info("sleep for {} second: {}".format(
-                    int(secs_to_sleep), rss.url))
-                await asyncio.sleep(secs_to_sleep)
-        try:
-            log.info("start scraping: {}".format(rss.url))
-            async with aiohttp.ClientSession(
-                    raise_for_status=True,
-                    headers=[("User-Agent", ua.random)],
-                    timeout=aiohttp.ClientTimeout(total=60)) as sess:
+    async def worker(self, queue: asyncio.Queue):
+        async with aiohttp.ClientSession(
+                raise_for_status=True,
+                headers=[("User-Agent", ua.random)],
+                timeout=aiohttp.ClientTimeout(total=60)) as sess:
 
-                proxy = random.choice(proxies).split(':')
-                async with sess.get(
-                        url,
-                        proxy="http://{}:{}".format(proxy[0], proxy[1]),
-                        proxy_auth=aiohttp.BasicAuth(proxy[2], proxy[3]),) as resp:
-                    html = await resp.text()
-                    resp, html = await fetch.get(rss.url)
-                    log.info("page downloaded: {}".format(rss.url))
-                    self.parse(resp, html, rss)
-                    log.info("page parsed & saved: {}".format(rss.url))
+            while True:
+                url, ticker = await queue.get()  # startpoint
+                rss = es.Rss.get_or_create(url, ticker)
 
-        except (NoRssEntries, aiohttp.ClientError) as e:
-            log.error(e)
-            rss.update(fetched_at=datetime.datetime.now(),
-                       n_retries=rss.n_retries + 1)
+                try:
+                    log.info("start scraping: {}".format(rss.url))
+                    proxy = random.choice(proxies).split(':')
+                    async with sess.get(
+                            url,
+                            proxy="http://{}:{}".format(proxy[0], proxy[1]),
+                            proxy_auth=aiohttp.BasicAuth(proxy[2], proxy[3]),) as resp:
+                        html = await resp.text()
+                        resp, html = await fetch.get(rss.url)
+                        log.info("page downloaded: {}".format(rss.url))
+                        self.parse(resp, html, rss)
+                        log.info("page parsed & saved: {}".format(rss.url))
+                        await asyncio.sleep(5)
+
+                except (NoRssEntries, aiohttp.ClientResponseError) as e:
+                    rss.update(fetched_at=datetime.datetime.now(),
+                               n_retries=rss.n_retries + 1)
+                    log.info("fetch error & skiped: {}".format(rss.url))
+                    log.error(e)
+                    self.error_urls.append(url)
+
+                except Exception as e:
+                    log.info("scrape internal error & skiped: {}".format(rss.url))
+                    log.error(e)
+                    self.error_urls.append(url)
+
+                finally:
+                    queue.task_done()
 
     def startpoints(self) -> Iterable[Tuple[str, str]]:
         df = pd.read_csv(utils.to_absolute_path(self.cfg.scraper.rss.csv.path))
-        for _, r in df.iterrows():
-            tk = None if math.isnan(r['ticker']) else r['ticker']
-            print(r['url'], tk)
+        for i, r in df.iterrows():
+            if i > 100:
+                break
+            if isinstance(r['ticker'], str):
+                tk = r['ticker']
+            else:
+                tk = None
+
+            rss = es.Rss.get_or_create(r['url'], tk)
+            if rss.fetched_at is not None and not self.cfg.scraper.rss.force_fetch:
+                secs_to_sleep = (rss.fetched_at +
+                                 datetime.timedelta(seconds=rss.freq) -
+                                 datetime.datetime.now()
+                                 ).total_seconds()
+                if secs_to_sleep > 0:
+                    log.info("sleep for {} second: {}".format(
+                        int(secs_to_sleep), rss.url))
+                    continue
             yield r['url'], tk
 
-    async def run(self):
-        es.init()
+    # async def run(self):
+    #     es.init()
 
-        _startpoints = []
-        for i, (url, ticker) in enumerate(self.startpoints()):
-            if i > 10:
-                break
-            _startpoints.append((url, ticker))
-        await asyncio.gather(*[self.scrape(url, ticker) for url, ticker in _startpoints])
+    #     _startpoints = []
+    #     for i, (url, ticker) in enumerate(self.startpoints()):
+    #         _startpoints.append((url, ticker))
+    #         if i > 100:
+    #             break
+    #     await asyncio.gather(*[self.scrape(url, ticker) for url, ticker in _startpoints])

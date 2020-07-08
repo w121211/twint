@@ -5,7 +5,7 @@ import dataclasses
 import json
 import logging
 import urllib
-from typing import Tuple, Iterable, List
+from typing import Tuple, Iterable, List, Any
 
 import aiohttp
 import elasticsearch
@@ -54,7 +54,7 @@ class BaseScraper:
         pass
 
     @abc.abstractmethod
-    def startpoints(self, *args, **kwargs) -> Iterable[str]:
+    def startpoints(self, *args, **kwargs) -> Iterable[Any]:
         pass
 
     async def worker(self, queue: asyncio.Queue):
@@ -81,8 +81,8 @@ class BaseScraper:
         queue = asyncio.Queue()
         es.init()
 
-        for url in self.startpoints(*args, **kwargs):
-            queue.put_nowait(url)
+        for startpoint in self.startpoints(*args, **kwargs):
+            queue.put_nowait(startpoint)
         tasks = [asyncio.create_task(self.worker(queue))
                  for _ in range(n_workers)]
 
@@ -164,7 +164,8 @@ class BasePageScraper(BaseScraper):
                     page = es.Page.get(id=url)
                     if page.http_status != 200:
                         raise elasticsearch.NotFoundError()
-                    log.info('page existed and scraped (code=200), skip {}'.format(url))
+                    log.info(
+                        'page existed and scraped (code=200), skip {}'.format(url))
                 except elasticsearch.NotFoundError:
                     try:
                         async with sess.get(url) as resp:
