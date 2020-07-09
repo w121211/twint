@@ -20,14 +20,12 @@ from fake_useragent import UserAgent
 
 from ..store import es
 from .. import fetch
-from .base import BaseScraper
+from .base import BaseScraper, proxies
 
 
 log = logging.getLogger(__name__)
 # log.addHandler(logging.StreamHandler(sys.stdout))
 ua = UserAgent(verify_ssl=False)
-data = pd.read_csv('./resource/proxies.txt', sep=" ", header=None)
-proxies = list(data[0])
 
 
 class NoRssEntries(Exception):

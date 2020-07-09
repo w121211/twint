@@ -12,6 +12,10 @@ from app.scrapers import cnyes
 from app.scrapers import cnbc
 from app.store import es
 
+"""
+python -m pytest tests/test_scrapers.py::test_cnyes_page_parse_tickers -vv
+"""
+
 # async def fetch_and_parse():
 #     url = 'https://www.cnbc.com/2020/04/19/why-big-techs-coronavirus-goodwill-wont-help-in-antitrust-probes.html'
 #     async with aiohttp.ClientSession() as session:
@@ -170,31 +174,46 @@ def test_cnbc_page_tags(page_html, expected):
 
 
 @pytest.mark.parametrize(
-    'page_html,expected',
-    [('https://news.cnyes.com/news/id/4484825',
-      ['美元匯價', '做空美元', '經濟重啟', '新冠疫情', '放空美元'])],
+    'page_html,expected', [
+        ('https://news.cnyes.com/news/id/4484825',
+         ['美元匯價', '做空美元', '經濟重啟', '新冠疫情', '放空美元']),
+        ("https://news.cnyes.com/news/id/4504226",
+         ['文曄', '大聯大', '半導體通路', '手機', '筆電'])
+    ],
     indirect=True)
-def test_cnyes_page_parse(page_html, expected):
-    # article = Article("http://test.url")
-    # article.set_html(page_html)
-    # article.parse()
-
+def test_cnyes_page_parse_keywords(page_html, expected):
     # initialize(config_dir="../app")
     # cfg = compose("config.yaml")
     # print(cfg)
     # scp = cnbc.CnbcScraper(cfg)
     # scp.parse()
     scp = cnyes.CnyesPageScraper()
-
     assert scp._parse_keywords(page_html) == expected
 
-    # assert article.meta_keywords == None
 
-    # scp.
-    # assert scp._parse_keywords(cnyes_page_html) == [
-    #     '光寶科', 'LED', '資訊', '電源', '裁員']
-    # assert scp._parse_tickers(article.clean_top_node) == [
-    #     TickerText(
-    #         text='光寶科 (2301-TW) 今 (9) 日傳出旗下工業自動化事業部裁員百人，對此，光寶科澄清，只是因應考核，進行的組織內部常態性調整，以內轉為優先，並非如外傳所說的裁員上百人。',
-    #         labels=[('', '2301-TW')]
-    #     )]
+@pytest.mark.parametrize(
+    'page_html,expected', [
+        (
+            "https://news.cnyes.com/news/id/4504226",
+            [
+                TickerText(
+                    text="半導體通路雙雄大聯大 (3702-TW)、文曄 (3036-TW) 今(9) 日公布第二季營收，分別達 1498.1 億元、747.24 億元，年增 15.97%、年減 0.04%；大聯大受惠 5G 基地台產品出貨暢旺，加上筆電需求持強，第二季營收創歷史次高，文曄則因手機下游面臨庫存調整，第二季營收較上季、去年同期略減，預計本季可望重返成長。", labels=[('', '3702-TW'), ('', '3036-TW')])
+            ]
+        ),
+        (
+            "https://news.cnyes.com/news/id/4504071",
+            [
+                TickerText(
+                    text='台灣東洋 (4105-TW) 新任總經理施俊良今 (9) 日表示，公司正研發兩款新藥，分別為抗黴藥 Lipo-AB 及微球型產品 Octreotide LAR，其中，Octreotide LAR 正與國際藥廠洽談商業銷售合約細節，最快今年可完成，里程碑金上看 500 萬美元 (約新台幣 1.5 億元)。', labels=[('', '4105-TW')]),
+                TickerText(
+                    text='東洋共有兩座廠房，分別位於中壢與六堵，其中，中壢廠為癌症專屬針劑廠，主要是為國際大廠嬌生 (J&J) 進行藥品代工；六堵廠則斥資超過 10 億元建置微脂體、微球產線，目前主要是為日本客戶及子公司東生華 (8432-TW) 代工藥品。未來抗黴藥 Lipo-AB 及微球型產品 Octreotide LAR 上市後，也將由六堵廠進行生產。', labels=[('', '8432-TW')])
+            ]
+        )
+    ], indirect=True)
+def test_cnyes_page_parse_tickers(page_html, expected):
+    article = Article("http://test.url")
+    article.set_html(page_html)
+    article.parse()
+    scp = cnyes.CnyesPageScraper()
+
+    assert scp._parse_tickers(article.clean_top_node) == expected

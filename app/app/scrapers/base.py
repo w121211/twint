@@ -4,6 +4,7 @@ import datetime
 import dataclasses
 import json
 import logging
+import random
 import urllib
 from typing import Tuple, Iterable, List, Any
 
@@ -22,6 +23,9 @@ from .. import fetch
 log = logging.getLogger(__name__)
 
 ua = UserAgent(verify_ssl=False)
+
+data = pd.read_csv('./resource/proxies.txt', sep=" ", header=None)
+proxies = list(data[0])
 
 
 @dataclasses.dataclass
@@ -168,13 +172,23 @@ class BasePageScraper(BaseScraper):
                         'page existed and scraped (code=200), skip {}'.format(url))
                 except elasticsearch.NotFoundError:
                     try:
-                        async with sess.get(url) as resp:
+                        args = {"proxy": None, "proxy_auth": None}
+
+                        if self.cfg.proxy.enabled:
+                            px = random.choice(proxies).split(':')
+                            args = {
+                                "proxy": f"http://{px[0]}:{px[1]}",
+                                "proxy_auth":aiohttp.BasicAuth(px[2], px[3])
+                            }
+
+                        async with sess.get(url, **args) as resp:
                             log.info('page fetching {}'.format(url))
                             html = await resp.text()
                             log.info('page downloaded {}'.format(url))
                             self.parse(url, resp, html)
                             log.info('page scraped {}'.format(url))
                             await asyncio.sleep(3)
+
                     except aiohttp.ClientResponseError as e:
                         page = es.Page(
                             from_url=url,
@@ -184,6 +198,7 @@ class BasePageScraper(BaseScraper):
                         log.info("fetch error & skiped: {}".format(e))
                         log.error(e)
                         self.error_urls.append(url)
+
                     except Exception as e:
                         log.info(
                             "scrape internal error & skiped: {}".format(e))

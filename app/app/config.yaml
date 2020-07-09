@@ -26,6 +26,7 @@ scraper:
     store: es
 
 proxy:
+  enabled: true
   path: ./proxies.txt
   
 
