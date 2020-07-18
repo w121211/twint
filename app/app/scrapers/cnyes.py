@@ -27,6 +27,10 @@ class CnyesApiScraper:
     def __init__(self, cfg: DictConfig = None):
         super().__init__()
         self.cfg = cfg
+        # self.start = datetime.datetime(*cfg.scraper.cnyes_api.start)
+        # self.until = datetime.datetime(cfg.scraper.cnyes_api.until)
+        self.start = datetime.datetime.now() - datetime.timedelta(days=30)
+        self.until = datetime.datetime.now()
         self.error_urls = []
 
     def parse(self, resp: aiohttp.ClientResponse, data: dict) -> Tuple[List[es.Page], List[str]]:
@@ -87,14 +91,11 @@ class CnyesApiScraper:
                 finally:
                     queue.task_done()
 
-    async def run(self,
-                  start=datetime.datetime.now() - datetime.timedelta(days=30),
-                  until=datetime.datetime.now(),
-                  n_workers=1):
+    async def run(self, n_workers=1, loop_every=None):
         queue = asyncio.Queue()
         es.init()
 
-        for url in self.startpoints(start, until):
+        for url in self.startpoints(self.start, self.until):
             queue.put_nowait(url)
         tasks = [asyncio.create_task(self.worker(queue))
                  for _ in range(n_workers)]

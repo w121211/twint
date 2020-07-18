@@ -215,6 +215,7 @@ class RssScraper(BaseScraper):
                     continue
             yield r['url'], tk
 
+    
     # async def run(self):
     #     es.init()
 

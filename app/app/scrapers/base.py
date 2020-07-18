@@ -79,9 +79,7 @@ class BaseScraper:
                 finally:
                     queue.task_done()
 
-    async def run(self, n_workers=1, *args, **kwargs):
-        log.info("scraper start running: {} workers".format(n_workers))
-
+    async def _run(self, n_workers=1, *args, **kwargs):
         queue = asyncio.Queue()
         es.init()
 
@@ -100,6 +98,23 @@ class BaseScraper:
         df.to_csv("./error_urls.csv", index=False)
 
         log.info("all jobs done.")
+
+    async def run(self, n_workers=1, loop_every=None, *args, **kwargs):
+        if loop_every is not None:
+            while True:
+                log.info(
+                    f"scraper start running: {n_workers} workers, loop every {loop_every} seconds")
+                start = datetime.datetime.now()
+                await self._run(n_workers, *args, **kwargs)
+                wait = start + \
+                    datetime.timedelta(0, loop_every) - datetime.datetime.now()
+                log.info(
+                    f'all jobs done, scraper sleep for {wait.total_seconds()} seconds')
+                await asyncio.sleep(wait.total_seconds())
+        else:
+            log.info(f"scraper start running: {n_workers} workers")
+            await self._run(n_workers, *args, **kwargs)
+            log.info(f'all jobs done')
 
 
 class BasePageScraper(BaseScraper):
@@ -178,7 +193,7 @@ class BasePageScraper(BaseScraper):
                             px = random.choice(proxies).split(':')
                             args = {
                                 "proxy": f"http://{px[0]}:{px[1]}",
-                                "proxy_auth":aiohttp.BasicAuth(px[2], px[3])
+                                "proxy_auth": aiohttp.BasicAuth(px[2], px[3])
                             }
 
                         async with sess.get(url, **args) as resp:

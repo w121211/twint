@@ -11,8 +11,11 @@ from .scrapers import cnbc, rss, cnyes
 # log.addHandler(logging.StreamHandler(sys.stdout))
 
 """
-cd .../twint/app
-python -m app.main
+$ cd .../twint/app
+$ python -m app.main run.scraper=rss run.n_workers=1 run.loop_every=86400 
+$ python -m app.main run.scraper=cnyes_api run.n_workers=1
+$ python -m app.main run.scraper=cnyes_page run.n_workers=1
+$ python -m app.main run.scraper=cnbc run.n_workers=1
 """
 
 
@@ -20,21 +23,18 @@ python -m app.main
 def main(cfg: DictConfig) -> None:
     logging.getLogger("elasticsearch").setLevel(logging.CRITICAL)
 
-    # scp = scrapers.RssScraper(cfg.scraper.rss)
-    # scp = rss.RssScraper(cfg)
-    # scp = cnyes.CnyesApiScraper()
-    scp = cnyes.CnyesPageScraper(cfg)
-    # scp = cnbc.CnbcScraper(cfg, use_requests=False)
+    print(cfg)
+    scrapers = {
+        "rss": rss.RssScraper,
+        "cnyes_api": cnyes.CnyesApiScraper,
+        "cnyes_page": cnyes.CnyesPageScraper,
+        "cnbc": cnbc.CnbcScraper,
+    }
 
-    # asyncio.run(
-    #     scp.run(
-    #         start=datetime.datetime(2020, 5, 5),
-    #         # until=datetime.datetime(2010, 3, 1),
-    #         n_workers=cfg.run.n_workers,
-    #     )
-    # )
-
-    asyncio.run(scp.run(cfg.run.n_workers))
+    scp = scrapers[cfg.run.scraper](cfg)
+    asyncio.run(
+        scp.run(cfg.run.n_workers, cfg.run.loop_every)
+    )
 
 
 if __name__ == "__main__":

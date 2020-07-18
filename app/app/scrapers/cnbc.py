@@ -136,7 +136,7 @@ class CnbcScraper(BaseScraper):
             await self._requests_worker(queue)
         else:
             async with aiohttp.ClientSession(
-                    raise_for_status=True, 
+                    raise_for_status=True,
                     headers=[("User-Agent", ua.random)],
                     timeout=aiohttp.ClientTimeout(total=60)) as sess:
                 while True:
@@ -218,18 +218,15 @@ class CnbcScraper(BaseScraper):
                 queue.task_done()
 
     def startpoints(self) -> Iterable[str]:
-        yield "https://cnb.cx/2Vl4nts"
-        yield "http://cnb.cx/sytyjc"
         # i = 0
-        # for hit in es.scan_twint('CNBC'):
-        #     if not hasattr(hit, "urls"):
-        #         continue
-        #     for u in hit.urls:
-        #         # i += 1
-        #         # if i > 30:
-        #         #     return
-        #         yield u
-        # yield "http://cnb.cx/sytyjc"
+        for hit in es.scan_twint('CNBC'):
+            if not hasattr(hit, "urls"):
+                continue
+            for u in hit.urls:
+                # i += 1
+                # if i > 30:
+                #     return
+                yield u
 
     async def run(self, n_workers=1, *args, **kwargs):
         log.info("scraper start running: {} workers".format(n_workers))
@@ -237,7 +234,7 @@ class CnbcScraper(BaseScraper):
         queue = asyncio.Queue()
         es.init()
 
-        for url in self.startpoints(*args, **kwargs):
+        for url in self.startpoints():
             queue.put_nowait(url)
         tasks = [asyncio.create_task(self.worker(queue))
                  for _ in range(n_workers)]
