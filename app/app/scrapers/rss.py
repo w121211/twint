@@ -107,9 +107,8 @@ class NoRssEntries(Exception):
 
 
 class RssScraper(BaseScraper):
-    def __init__(self, cfg: DictConfig):
-        super().__init__()
-        self.cfg = cfg
+    def _parse(self, html: str):
+        pass
 
     def parse(self, resp: aiohttp.ClientResponse, html: str, rss: es.Rss):
         feed = feedparser.parse(html)
@@ -147,9 +146,9 @@ class RssScraper(BaseScraper):
             page.update(
                 from_url=e["link"],
                 entry_title=e["title"],
-                entry_summary=e["summary"],
+                entry_summary=e["summary"] if "summary" in e else None,
                 entry_published_at=datetime.datetime.fromtimestamp(
-                    time.mktime(e['published_parsed'])),
+                    time.mktime(e['published_parsed'])) if "published_parsed" in e else None,
                 entry_tickers=list(tickers),
                 entry_urls=list(urls),)
         # return pages
@@ -194,10 +193,8 @@ class RssScraper(BaseScraper):
                     queue.task_done()
 
     def startpoints(self) -> Iterable[Tuple[str, str]]:
-        df = pd.read_csv(utils.to_absolute_path(self.cfg.scraper.rss.csv.path))
-        for i, r in df.iterrows():
-            if i > 100:
-                break
+        df = pd.read_csv(utils.to_absolute_path(self.cfg.scraper.rss.entry))
+        for _, r in df.iterrows():
             if isinstance(r['ticker'], str):
                 tk = r['ticker']
             else:
@@ -213,15 +210,5 @@ class RssScraper(BaseScraper):
                     log.info("sleep for {} second: {}".format(
                         int(secs_to_sleep), rss.url))
                     continue
+
             yield r['url'], tk
-
-    
-    # async def run(self):
-    #     es.init()
-
-    #     _startpoints = []
-    #     for i, (url, ticker) in enumerate(self.startpoints()):
-    #         _startpoints.append((url, ticker))
-    #         if i > 100:
-    #             break
-    #     await asyncio.gather(*[self.scrape(url, ticker) for url, ticker in _startpoints])

@@ -10,9 +10,11 @@ from hydra.experimental import compose, initialize
 from app.scrapers.base import TickerText
 from app.scrapers import cnyes
 from app.scrapers import cnbc
+from app.scrapers import rss
 from app.store import es
 
 """
+python -m pytest tests/test_scrapers.py::test_cnyes_page_parse_tickers -vv
 python -m pytest tests/test_scrapers.py::test_cnyes_page_parse_tickers -vv
 """
 

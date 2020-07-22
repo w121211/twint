@@ -1,13 +1,28 @@
 from __future__ import annotations
 import datetime
 import json
-from typing import Iterable
+from typing import Iterable, List, Tuple
 
+import dataclasses
 import elasticsearch
 from elasticsearch_dsl import connections, Document, Date, Keyword, Q, Search, Text, Range, Integer
 
 
 APP_ERROR_HTTP_STATUS = 9999  # app內部錯誤時使用
+
+
+@dataclasses.dataclass
+class LabelSet:
+    '''<p>...some text...<a href='$AAA'>...some anchor text</a>...<a>....</a>...</p>'''
+    text: str
+    # (anchor_text, ticker)
+    labels: List[Tuple[str, str]] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class Parsed:
+    keywords: List[str] = dataclasses.field(default_factory=list)
+    tickers: List[LabelSet] = dataclasses.field(default_factory=list)
 
 
 class Rss(Document):
