@@ -6,12 +6,11 @@ import json
 import logging
 import random
 import urllib
-from typing import Tuple, Iterable, List, Any
+from typing import Tuple, Iterable, List, Any, Optional, Union
 
 import aiohttp
 import elasticsearch
 import pandas as pd
-from hydra import utils
 from newspaper import Article
 from omegaconf import DictConfig
 from fake_useragent import UserAgent
@@ -23,9 +22,6 @@ from .. import fetch
 log = logging.getLogger(__name__)
 
 ua = UserAgent(verify_ssl=False)
-
-data = pd.read_csv('./resource/proxies.txt', sep=" ", header=None)
-proxies = list(data[0])
 
 
 @dataclasses.dataclass
@@ -44,38 +40,87 @@ class Parsed:
 
 
 class BaseScraper:
-    def __init__(self, cfg: DictConfig = None):
+    def __init__(self, cfg: DictConfig, proxies: Optional[List[str]] = None):
         super().__init__()
         self.cfg = cfg
         self.error_urls = []
-        self.proxies = None
-        # self.proxies = pd.read_csv(
-        #     utils.to_absolute_path(cfg.proxy.path),
-        #     sep=" ", header=None)[0] if cfg.proxy.path is not None else None
+        self.proxies = proxies
 
-    @abc.abstractmethod
-    def parse(self, from_url: str, resp: aiohttp.ClientResponse, text: str):
-        pass
+        self.proxy_enabled = self.cfg.proxy.enabled
+        self.sleep_for = self.cfg.run.sleep_for
 
     @abc.abstractmethod
     def startpoints(self, *args, **kwargs) -> Iterable[Any]:
         pass
 
+    @classmethod
+    @abc.abstractmethod
+    def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[es.Page]:
+        pass
+
+    def _is_scraped(self, url: str) -> bool:
+        try:
+            page = es.Page.get(id=url)
+            if page.http_status != 200:
+                raise elasticsearch.NotFoundError()
+            log.info(
+                'page existed and scraped (code=200), skip {}'.format(url))
+            return True
+        except elasticsearch.NotFoundError:
+            return False
+        except Exception as e:
+            log.info("scrape internal error & skiped: {}".format(e))
+            log.error(e)
+            self.error_urls.append(url)
+            return True
+
     async def worker(self, queue: asyncio.Queue):
-        async with aiohttp.ClientSession(raise_for_status=True, headers=[("User-Agent", ua.random)]) as sess:
+        async with aiohttp.ClientSession(
+                raise_for_status=True,
+                headers=[("User-Agent", ua.random)],
+                timeout=aiohttp.ClientTimeout(total=60)) as sess:
+
             while True:
                 url = await queue.get()
+
+                if self._is_scraped(url):
+                    queue.task_done()
+                    continue
+
                 try:
-                    async with sess.get(url) as resp:
-                        # j = await resp.json()
-                        new_urls = self.parse(url, resp, await resp.text())
-                        if new_urls is not None:
-                            for u in new_urls:
-                                queue.put_nowait(u)
-                        log.info(f'scraped: {url}')
-                except aiohttp.ClientError as e:
+                    args = {"proxy": None, "proxy_auth": None}
+
+                    if self.proxy_enabled:
+                        px = random.choice(self.proxies).split(':')
+                        args = {
+                            "proxy": f"http://{px[0]}:{px[1]}",
+                            "proxy_auth": aiohttp.BasicAuth(px[2], px[3])
+                        }
+                    async with sess.get(url, **args) as resp:
+                        log.info('page fetching {}'.format(url))
+                        html = await resp.text()
+                        log.info('page downloaded {}'.format(url))
+                        parsed = self.parse(
+                            url, str(resp.url), resp.status, html)
+                        log.info('page scraped {}'.format(url))
+
+                        await asyncio.sleep(self.sleep_for)
+
+                except aiohttp.ClientResponseError as e:
+                    p = es.Page.get_or_create(url)
+                    p.update(
+                        from_url=url,
+                        resolved_url=str(e.request_info.real_url),
+                        http_status=e.status,)
+                    log.info("fetch error & skiped: {}".format(e))
                     log.error(e)
                     self.error_urls.append(url)
+
+                except Exception as e:
+                    log.info("scrape internal error & skiped: {}".format(e))
+                    log.error(e)
+                    self.error_urls.append(url)
+
                 finally:
                     queue.task_done()
 
@@ -117,111 +162,62 @@ class BaseScraper:
             log.info(f'all jobs done')
 
 
+def _parse_tickers(node: etree.Element) -> List[TickerText]:
+    tickers = []
+
+    # find all <a> and de-duplicate their parents
+    for p in set([e.getparent() for e in node.cssselect('a')]):
+        text = etree.tostring(
+            p, method='text', encoding='utf-8').decode('utf-8').strip()
+        tk = TickerText(text)
+        print(text)
+
+        for a in p.cssselect('a'):
+            href = a.get('href')
+            queries = dict(urllib.parse.parse_qsl(
+                urllib.parse.urlsplit(href).query))
+            try:
+                tk.labels.append((a.text, queries['symbol']))
+            except KeyError:
+                continue
+        if len(tk.labels) > 0:
+            tickers.append(tk)
+
+    return tickers
+
+
 class BasePageScraper(BaseScraper):
-    # for filtering page entries
-    domain = 'domain.com'
-
-    def _parse_tickers(self, node: etree.Element) -> List[TickerText]:
-        tickers = []
-
-        # find all <a> and de-duplicate their parents
-        for p in set([e.getparent() for e in node.cssselect('a')]):
-            text = etree.tostring(
-                p, method='text', encoding='utf-8').decode('utf-8').strip()
-            tk = TickerText(text)
-            print(text)
-
-            for a in p.cssselect('a'):
-                href = a.get('href')
-                queries = dict(urllib.parse.parse_qsl(
-                    urllib.parse.urlsplit(href).query))
-                try:
-                    tk.labels.append((a.text, queries['symbol']))
-                except KeyError:
-                    continue
-            if len(tk.labels) > 0:
-                tickers.append(tk)
-
-        return tickers
+    domain = 'example.com'  # for filtering page entries
 
     def startpoints(self, *args, **kwargs) -> Iterable[str]:
         # yield es.Page.scan_urls(self.domain)
+        print(self.domain)
         for i, url in enumerate(es.Page.scan_urls(self.domain)):
+            print(url)
             yield url
-            if i > 10:
-                break
+            # if i > 10:
+            #     break
 
-    def parse(self, from_url: str, resp: aiohttp.ClientResponse, html: str) -> es.Page:
-        article = Article(str(resp.url))
+    @classmethod
+    def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[es.Page]:
+        article = Article(resolved_url)
         article.set_html(html)
         article.parse()
         parsed = Parsed(
             keywords=article.meta_keywords,
-            tickers=self._parse_tickers(article.clean_top_node))
-        page = es.Page(
+            tickers=_parse_tickers(article.clean_top_node))
+        p = es.Page(
             from_url=from_url,
-            resolved_url=str(resp.url),
-            http_status=resp.status,
-            article_metadata=json.dumps(article.meta_data),
+            resolved_url=resolved_url,
+            http_status=http_status,
+            article_metadata=json.dumps(article.meta_data, ensure_ascii=False),
             article_published_at=article.publish_date,
             article_title=article.title,
             article_text=article.text,
             article_html=etree.tostring(
                 article.clean_top_node, encoding='utf-8').decode('utf-8'),
-            parsed=json.dumps(dataclasses.asdict(parsed)),
+            parsed=json.dumps(dataclasses.asdict(parsed), ensure_ascii=False),
             fetched_at=datetime.datetime.now(),)
-        page.save()
+        p.save()
 
-    async def worker(self, queue: asyncio.Queue):
-        async with aiohttp.ClientSession(
-                raise_for_status=True,
-                headers=[("User-Agent", ua.random)],
-                timeout=aiohttp.ClientTimeout(total=60)) as sess:
-            while True:
-                url = await queue.get()
-                try:
-                    page = es.Page.get(id=url)
-                    if page.http_status != 200:
-                        raise elasticsearch.NotFoundError()
-                    log.info(
-                        'page existed and scraped (code=200), skip {}'.format(url))
-                except elasticsearch.NotFoundError:
-                    try:
-                        args = {"proxy": None, "proxy_auth": None}
-
-                        if self.cfg.proxy.enabled:
-                            px = random.choice(proxies).split(':')
-                            args = {
-                                "proxy": f"http://{px[0]}:{px[1]}",
-                                "proxy_auth": aiohttp.BasicAuth(px[2], px[3])
-                            }
-
-                        async with sess.get(url, **args) as resp:
-                            log.info('page fetching {}'.format(url))
-                            html = await resp.text()
-                            log.info('page downloaded {}'.format(url))
-                            self.parse(url, resp, html)
-                            log.info('page scraped {}'.format(url))
-                            await asyncio.sleep(3)
-
-                    except aiohttp.ClientResponseError as e:
-                        page = es.Page(
-                            from_url=url,
-                            resolved_url=str(e.request_info.real_url),
-                            http_status=e.status,)
-                        page.save()
-                        log.info("fetch error & skiped: {}".format(e))
-                        log.error(e)
-                        self.error_urls.append(url)
-
-                    except Exception as e:
-                        log.info(
-                            "scrape internal error & skiped: {}".format(e))
-                        log.error(e)
-                        self.error_urls.append(url)
-                except Exception as e:
-                    log.info("scrape internal error & skiped: {}".format(e))
-                    log.error(e)
-                    self.error_urls.append(url)
-                finally:
-                    queue.task_done()
+        return [p]

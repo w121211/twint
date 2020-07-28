@@ -1,8 +1,12 @@
 run:
   scraper: cnyes
-  # n_batch: 50
   n_workers: 1
   loop_every: null  # in seconds
+  sleep_for: 1  # sleep n seconds after each scraped
+
+proxy:
+  enabled: true
+  path: ./proxies.txt
 
 store:
   es:
@@ -22,17 +26,14 @@ scraper:
     entry: './resource/rss_yahoo_us.csv'  # path for startpoints
     fetch_rss_every_n_seconds: 604800  # hold maximum 7 days for refetch
     force_fetch: false  # ignore sleep time
-  cnbc:
-    store: es
   cnyes_api: 
     start: [2020, 5, 5]  # [year, month, day]
     # until: [2010, 3, 1]  # [year, month, day]
     until: null # [year, month, day]
+  moneydj_index:
+    start: 1
+    until: 3  # max: 3500
 
-proxy:
-  enabled: true
-  path: ./proxies.txt
-  
 
     
 

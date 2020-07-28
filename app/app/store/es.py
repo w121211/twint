@@ -11,20 +11,6 @@ from elasticsearch_dsl import connections, Document, Date, Keyword, Q, Search, T
 APP_ERROR_HTTP_STATUS = 9999  # app內部錯誤時使用
 
 
-@dataclasses.dataclass
-class LabelSet:
-    '''<p>...some text...<a href='$AAA'>...some anchor text</a>...<a>....</a>...</p>'''
-    text: str
-    # (anchor_text, ticker)
-    labels: List[Tuple[str, str]] = dataclasses.field(default_factory=list)
-
-
-@dataclasses.dataclass
-class Parsed:
-    keywords: List[str] = dataclasses.field(default_factory=list)
-    tickers: List[LabelSet] = dataclasses.field(default_factory=list)
-
-
 class Rss(Document):
     url = Keyword(required=True)
     ticker = Keyword()
@@ -114,12 +100,11 @@ class Page(Document):
         pass
 
     @classmethod
-    def get_or_create(cls, url) -> Page:
+    def get_or_create(cls, from_url: str) -> Page:
         try:
-            page = cls.get(id=url)
+            page = cls.get(id=from_url)
         except elasticsearch.NotFoundError:
-            page = cls(from_url=url)
-            page.save()
+            page = cls(from_url=from_url)
         return page
 
     @classmethod

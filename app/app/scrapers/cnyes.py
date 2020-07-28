@@ -16,7 +16,6 @@ from fake_useragent import UserAgent
 from lxml import etree
 
 from ..store import es
-from .. import fetch
 from .base import BasePageScraper, TickerText, Parsed
 
 log = logging.getLogger(__name__)
@@ -110,50 +109,56 @@ class CnyesApiScraper:
         df.to_csv("./error_urls.csv", index=False)
 
 
+def _parse_tickers(node: etree.Element) -> List[TickerText]:
+    tickers = []
+    # find all <a> and de-duplicate their parents
+    for p in set([e.getparent() for e in node.cssselect('a')]):
+        text = etree.tostring(
+            p, method='text', encoding='utf-8').decode('utf-8').strip()
+        tt = TickerText(text)
+
+        for a in p.cssselect('a'):
+            href = a.get('href')
+            if 'invest.cnyes.com' in href:
+                tt.labels.append(("", a.text))
+        if len(tt.labels) > 0:
+            tickers.append(tt)
+    return tickers
+
+
+def _parse_keywords(html: str) -> List[str]:
+    soup = BeautifulSoup(html, 'html.parser')
+    e = soup.select_one('meta[itemprop="keywords"]')
+    if e is not None:
+        return e['content'].split(",")
+    else:
+        return []
+
+
 class CnyesPageScraper(BasePageScraper):
     domain = 'cnyes.com'
     kw_regex = re.compile(r'^\/tag\/(\w+)')
 
-    def _parse_tickers(self, node: etree.Element) -> List[TickerText]:
-        tickers = []
-        # find all <a> and de-duplicate their parents
-        for p in set([e.getparent() for e in node.cssselect('a')]):
-            text = etree.tostring(
-                p, method='text', encoding='utf-8').decode('utf-8').strip()
-            tt = TickerText(text)
-
-            for a in p.cssselect('a'):
-                href = a.get('href')
-                if 'invest.cnyes.com' in href:
-                    tt.labels.append(("", a.text))
-            if len(tt.labels) > 0:
-                tickers.append(tt)
-        return tickers
-
-    def _parse_keywords(self, html: str) -> List[str]:
-        soup = BeautifulSoup(html, 'html.parser')
-        e = soup.select_one('meta[itemprop="keywords"]')
-        if e is not None:
-            return e['content'].split(",")
-        else:
-            return []
-
-    def parse(self, from_url: str, resp: aiohttp.ClientResponse, html: str) -> es.Page:
-        article = Article(str(resp.url))
+    @classmethod
+    def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[es.Page]:
+        article = Article(resolved_url)
         article.set_html(html)
         article.parse()
         parsed = Parsed(
-            keywords=self._parse_keywords(html),
-            tickers=self._parse_tickers(article.clean_top_node),)
-        page = es.Page.get_or_create(from_url)
-        page.update(
-            resolved_url=str(resp.url),
-            http_status=resp.status,
-            article_metadata=json.dumps(article.meta_data),
+            keywords=_parse_keywords(html),
+            tickers=_parse_tickers(article.clean_top_node),)
+        p = es.Page(
+            from_url=from_url,
+            resolved_url=resolved_url,
+            http_status=http_status,
+            article_metadata=json.dumps(article.meta_data, ensure_ascii=False),
             article_published_at=article.publish_date,
             article_title=article.title,
             article_text=article.text,
-            article_html=etree.tostring(
-                article.clean_top_node, encoding='utf-8').decode('utf-8'),
-            parsed=json.dumps(dataclasses.asdict(parsed)),
+            # article_html=etree.tostring(
+            #     article.clean_top_node, encoding='utf-8').decode('utf-8'),
+            parsed=json.dumps(dataclasses.asdict(parsed), ensure_ascii=False),
             fetched_at=datetime.datetime.now(),)
+        p.save()
+
+        return [p]

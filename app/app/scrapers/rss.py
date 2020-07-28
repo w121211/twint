@@ -20,7 +20,7 @@ from fake_useragent import UserAgent
 
 from ..store import es
 from .. import fetch
-from .base import BaseScraper, proxies
+from .base import BaseScraper
 
 
 log = logging.getLogger(__name__)
@@ -165,7 +165,7 @@ class RssScraper(BaseScraper):
 
                 try:
                     log.info("start scraping: {}".format(rss.url))
-                    proxy = random.choice(proxies).split(':')
+                    proxy = random.choice(self.proxies).split(':')
                     async with sess.get(
                             url,
                             proxy="http://{}:{}".format(proxy[0], proxy[1]),

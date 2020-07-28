@@ -2,10 +2,8 @@
     "python.pythonPath": "/usr/local/bin/python3.7",
     "python.linting.pylintEnabled": true,
     "python.linting.enabled": true,
-    "python.testing.pytestArgs": [
-        "-s",
-        "app"
-    ],
+    "python.testing.cwd": "${workspaceFolder}/app/tests",
+    "python.testing.pytestArgs": [],
     "python.testing.unittestEnabled": false,
     "python.testing.nosetestsEnabled": false,
     "python.testing.pytestEnabled": true,
