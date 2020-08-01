@@ -3,6 +3,7 @@ run:
   n_workers: 1
   loop_every: null  # in seconds
   sleep_for: 1  # sleep n seconds after each scraped
+  max_startpoints: -1  # max number of startpoints, -1 refers to no restricted
 
 proxy:
   enabled: true
@@ -25,7 +26,7 @@ scraper:
   rss:
     entry: './resource/rss_yahoo_us.csv'  # path for startpoints
     fetch_rss_every_n_seconds: 604800  # hold maximum 7 days for refetch
-    force_fetch: false  # ignore sleep time
+    force_fetch: true  # ignore sleep time
   cnyes_api: 
     start: [2020, 5, 5]  # [year, month, day]
     # until: [2010, 3, 1]  # [year, month, day]

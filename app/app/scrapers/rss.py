@@ -20,138 +20,70 @@ from fake_useragent import UserAgent
 
 from ..store import es
 from .. import fetch
-from .base import BaseScraper
+from .base import BaseScraper, ua
 
 
 log = logging.getLogger(__name__)
-# log.addHandler(logging.StreamHandler(sys.stdout))
-ua = UserAgent(verify_ssl=False)
 
 
 class NoRssEntries(Exception):
     pass
 
 
-# def save_rss_item(db: PostgresqlDatabase, entry: Entry, rss: feedparser.FeedParserDict) -> None:
-#     with db.atomic():
-#         for item in rss['entries']:
-#             try:
-#                 page = Page.get(url=item['link'])
-
-#                 # add rss tikcer
-#                 tks = page.rss_tickers.split(",")
-#                 if entry.ticker is not None and entry.ticker not in tks:
-#                     tks += [entry.ticker]
-#                     query = Page.update(
-#                         tickers=','.join(tks),
-#                         updated_at=datetime.datetime.now()
-#                     ).where(Page.id == page.id)
-#                     query.execute()
-#             except:
-#                 data = dict(
-#                     url=item['link'],
-#                     rss_title=item['title'],
-#                     rss_summary=item['summary'],
-#                     rss_published_at=datetime.datetime.fromtimestamp(
-#                         time.mktime(item['published_parsed'])),
-#                     rss_tickers=entry.ticker,
-#                     fetched_at=datetime.datetime.now())
-#                 page = Page.create(**data)
-
-
-# async def scrape_page(entry: Entry, item: feedparser.FeedParserDict) -> Page:
-#     try:
-#         page = Page.get(url=item['link'])
-
-#         # add rss tikcer
-#         tks = page.rss_tickers.split(",")
-#         if entry.ticker is not None and entry.ticker not in tks:
-#             tks += [entry.ticker]
-#             query = Page.update(
-#                 tickers=','.join(tks),
-#                 updated_at=datetime.datetime.now()
-#             ).where(Page.id == page.id)
-#             query.execute()
-#         return page
-
-#     except Page.DoesNotExist:
-#         try:
-#             async with aiohttp.ClientSession() as sess:
-#                 async with sess.get(item['link']) as resp:
-#                     html = await resp.text()
-#         except aiohttp.ClientError as e:
-#             log.error(e)
-#             html = None
-
-#         data = dict(
-#             url=item['link'],
-#             rss_title=item['title'],
-#             rss_summary=item['summary'],
-#             rss_published_at=item['published_at'],
-#             rss_tickers=entry['ticker'],
-#             raw=html,
-#             fetched_at=datetime.datetime.now())
-#         try:
-#             article = Article(item['link'])
-#             article.set_html(html)
-#             article.parse()
-#             data = dict(** data,
-#                         parsed_title=article.title,
-#                         parsed_text=article.text,
-#                         parsed_published_at=article.publish_date)
-#         except ArticleException as e:
-#             log.debug(e)
-#         finally:
-#             page = Page.create(**data)
-#         return page
-
-
 class RssScraper(BaseScraper):
-    def _parse(self, html: str):
-        pass
 
-    def parse(self, resp: aiohttp.ClientResponse, html: str, rss: es.Rss):
+    @classmethod
+    def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str, rss: es.Rss,
+              fetch_rss_every_n_seconds=604800) -> List[es.Page]:
         feed = feedparser.parse(html)
         if len(feed['entries']) == 0:
-            raise NoRssEntries("No entries found: {}".format(str(resp.url)))
+            raise NoRssEntries(
+                "No entries found: {}".format(str(resolved_url)))
 
-        # update rss.freq
+        # update rss.freq based on entry's published time
         stamps = [datetime.datetime.fromtimestamp(time.mktime(d['published_parsed']))
                   for d in feed['entries']]
         stamps.sort()
         if len(stamps) == 1:
-            freq = self.cfg.scraper.rss.fetch_rss_every_n_seconds
+            freq = fetch_rss_every_n_seconds
         else:
             freq = int(min((stamps[-1] - stamps[0]).total_seconds() / 3,
-                           self.cfg.scraper.rss.fetch_rss_every_n_seconds))
-        rss.update(
-            freq=freq,
-            n_retries=0,
-            fetched_at=datetime.datetime.now(),
-            last_published_at=stamps[-1],)
+                           fetch_rss_every_n_seconds))
+        rss.freq = freq
+        rss.n_retries = 0
+        rss.fetched_at = datetime.datetime.now()
+        rss.last_published_at = stamps[-1]
+        rss.save()
 
         # create or update pages (as entrypoints, no-fetching)
+        pages = []
         for e in feed["entries"]:
-            page = es.Page.get_or_create(e["link"])
+            from_url = e["link"]
+            try:
+                p = es.Page.get(id=from_url)
+                urls = set(p.entry_urls)
+                urls.add(rss.url)
+                p.entry_urls = list(urls)
 
-            tickers = page.entry_tickers or []
-            if rss.ticker is not None:
-                tickers = set(tickers)
-                tickers.add(rss.ticker)
-
-            urls = page.entry_urls or []
-            urls = set(urls)
-            urls.add(rss.url)
-
-            page.update(
-                from_url=e["link"],
-                entry_title=e["title"],
-                entry_summary=e["summary"] if "summary" in e else None,
-                entry_published_at=datetime.datetime.fromtimestamp(
-                    time.mktime(e['published_parsed'])) if "published_parsed" in e else None,
-                entry_tickers=list(tickers),
-                entry_urls=list(urls),)
-        # return pages
+                if rss.ticker is not None:
+                    tks = set(p.entry_tickers)
+                    tks.add(rss.ticker)
+                    p.entry_tickers = list(tks)
+                p.save()
+            except elasticsearch.NotFoundError:
+                p = es.Page(
+                    from_url=from_url,
+                    entry_title=e["title"],
+                    entry_summary=e["summary"] if "summary" in e else None,
+                    entry_published_at=datetime.datetime.fromtimestamp(
+                        time.mktime(e['published_parsed'])) if "published_parsed" in e else None,
+                    entry_tickers=[
+                        rss.ticker] if rss.ticker is not None else [],
+                    entry_urls=[rss.url],
+                )
+                p.save()
+            pages.append(p)
+        return pages
 
     async def worker(self, queue: asyncio.Queue):
         async with aiohttp.ClientSession(
@@ -161,7 +93,12 @@ class RssScraper(BaseScraper):
 
             while True:
                 url, ticker = await queue.get()  # startpoint
-                rss = es.Rss.get_or_create(url, ticker)
+                rss = es.Rss(
+                    url=url,
+                    ticker=ticker
+                )
+
+                # rss = es.Rss.get_or_create(url, ticker)
 
                 try:
                     log.info("start scraping: {}".format(rss.url))
@@ -173,13 +110,14 @@ class RssScraper(BaseScraper):
                         html = await resp.text()
                         resp, html = await fetch.get(rss.url)
                         log.info("page downloaded: {}".format(rss.url))
-                        self.parse(resp, html, rss)
+                        self.parse(url, str(resp.url), resp.status, html, rss,
+                                   self.cfg.scraper.rss.fetch_rss_every_n_seconds)
                         log.info("page parsed & saved: {}".format(rss.url))
                         await asyncio.sleep(5)
 
                 except (NoRssEntries, aiohttp.ClientResponseError) as e:
-                    rss.update(fetched_at=datetime.datetime.now(),
-                               n_retries=rss.n_retries + 1)
+                    rss.save(fetched_at=datetime.datetime.now(),
+                             n_retries=rss.n_retries + 1)
                     log.info("fetch error & skiped: {}".format(rss.url))
                     log.error(e)
                     self.error_urls.append(url)

@@ -16,58 +16,88 @@ from lxml import etree
 from newspaper import Article
 from omegaconf import DictConfig
 from requests.adapters import HTTPAdapter
-from fake_useragent import UserAgent
 
-from .base import BaseScraper
-from .. import fetch
+from .base import BaseScraper, BasePageScraper, TickerText, Parsed, ua
 from ..store import es
 
 log = logging.getLogger(__name__)
-# log.addHandler(logging.StreamHandler(sys.stdout))
-
-ua = UserAgent(verify_ssl=False)
-# ua.update()
 
 
-@dataclasses.dataclass
-class _Ticker:
-    '''<p>...some text...<a href='$AAA'>...some anchor text</a>...<a>....</a>...</p>'''
-    text: str
-    # (anchor_text, ticker)
-    labels: List[Tuple[str, str]] = dataclasses.field(default_factory=list)
-
-
-@dataclasses.dataclass
-class Parsed:
-    keywords: List[str] = dataclasses.field(default_factory=list)
-    tickers: List[_Ticker] = dataclasses.field(default_factory=list)
-
-
-def parse_tickers(node: etree.Element) -> List[_Ticker]:
-    tickers = []
+def _parse_tickers(node: etree.Element) -> List[TickerText]:
+    tks = []
 
     if node is not None:
         # find all <a> and de-duplicate their parents
         for p in set([e.getparent() for e in node.cssselect('a')]):
             text = etree.tostring(
                 p, method='text', encoding='utf-8').decode('utf-8').strip()
-            tk = _Ticker(text)
+            tt = TickerText(text)
 
             for a in p.cssselect('a'):
                 href = a.get('href')
                 queries = dict(urllib.parse.parse_qsl(
                     urllib.parse.urlsplit(href).query))
                 try:
-                    tk.labels.append((a.text, queries['symbol']))
+                    tt.labels.append((a.text, queries['symbol']))
                 except KeyError:
                     continue
-            if len(tk.labels) > 0:
-                tickers.append(tk)
+            if len(tt.labels) > 0:
+                tks.append(tt)
+    return tks
 
-    return tickers
+
+class CnbcPageScraper(BasePageScraper):
+    # domain = ['cnbc.com', 'cnb.cx']
+    domain = "cnbc.com"
+
+    def startpoints(self) -> Iterable[str]:
+        i = 0
+        for hit in es.scan_twint('CNBC'):
+            if not hasattr(hit, "urls"):
+                continue
+            for u in hit.urls:
+                if self.max_startpoints > 0 and i > self.max_startpoints:
+                    return
+                try:
+                    p = es.Page.get(id=u)
+                    if p.http_status in [200, 404, 403]:
+                        continue
+                    i += 1
+                    print(u)
+                    yield u
+                except:
+                    i += 1
+                    print(u)
+                    yield u
+
+    @classmethod
+    def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[es.Page]:
+        article = Article(resolved_url)
+        article.set_html(html)
+        article.parse()
+        parsed = Parsed(
+            keywords=article.meta_keywords,
+            tickers=_parse_tickers(article.clean_top_node),)
+        p = es.Page(
+            from_url=from_url,
+            resolved_url=resolved_url,
+            http_status=http_status,
+            article_metadata=json.dumps(article.meta_data, ensure_ascii=False),
+            article_published_at=article.publish_date,
+            article_title=article.title,
+            article_text=article.text,
+            # article_html=etree.tostring(
+            #     article.clean_top_node, encoding='utf-8').decode('utf-8'),
+            parsed=json.dumps(dataclasses.asdict(parsed), ensure_ascii=False),
+            fetched_at=datetime.datetime.now(),)
+        p.save()
+
+        return [p]
 
 
-class CnbcScraper(BaseScraper):
+class OldCnbcScraper(BaseScraper):
+    """deprecated"""
+
     def __init__(self, cfg: DictConfig = None, use_requests=False):
         super().__init__(cfg)
         self.use_requests = use_requests
@@ -108,7 +138,7 @@ class CnbcScraper(BaseScraper):
         if article.clean_top_node is not None:
             parsed = Parsed(
                 keywords=article.meta_keywords,
-                tickers=parse_tickers(article.clean_top_node))
+                tickers=_parse_tickers(article.clean_top_node))
             article_html = etree.tostring(
                 article.clean_top_node, encoding='utf-8').decode('utf-8')
         else:
@@ -117,7 +147,7 @@ class CnbcScraper(BaseScraper):
 
         parsed = Parsed(
             keywords=article.meta_keywords,
-            tickers=parse_tickers(article.clean_top_node))
+            tickers=_parse_tickers(article.clean_top_node))
         page = es.Page(
             from_url=from_url,
             resolved_url=str(resp.url),

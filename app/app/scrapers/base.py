@@ -6,7 +6,7 @@ import json
 import logging
 import random
 import urllib
-from typing import Tuple, Iterable, List, Any, Optional, Union
+from typing import Tuple, Iterable, List, Any, Optional, Union, Callable, Type
 
 import aiohttp
 import elasticsearch
@@ -45,9 +45,9 @@ class BaseScraper:
         self.cfg = cfg
         self.error_urls = []
         self.proxies = proxies
-
         self.proxy_enabled = self.cfg.proxy.enabled
         self.sleep_for = self.cfg.run.sleep_for
+        self.max_startpoints = self.cfg.run.max_startpoints
 
     @abc.abstractmethod
     def startpoints(self, *args, **kwargs) -> Iterable[Any]:
@@ -55,21 +55,20 @@ class BaseScraper:
 
     @classmethod
     @abc.abstractmethod
-    def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[es.Page]:
+    def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str, *args, **kwargs) -> List[es.Page]:
         pass
 
     def _is_scraped(self, url: str) -> bool:
         try:
             page = es.Page.get(id=url)
             if page.http_status != 200:
-                raise elasticsearch.NotFoundError()
-            log.info(
-                'page existed and scraped (code=200), skip {}'.format(url))
+                return False
+            log.info(f"page existed and scraped (code=200), skip {url}")
             return True
         except elasticsearch.NotFoundError:
             return False
         except Exception as e:
-            log.info("scrape internal error & skiped: {}".format(e))
+            log.info(f"scraper unexpected error & skiped: {e}")
             log.error(e)
             self.error_urls.append(url)
             return True
@@ -82,11 +81,9 @@ class BaseScraper:
 
             while True:
                 url = await queue.get()
-
                 if self._is_scraped(url):
                     queue.task_done()
                     continue
-
                 try:
                     args = {"proxy": None, "proxy_auth": None}
 
@@ -137,7 +134,6 @@ class BaseScraper:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        # await asyncio.gather(*tasks)
 
         df = pd.DataFrame({'url': self.error_urls})
         df.to_csv("./error_urls.csv", index=False)
@@ -187,37 +183,34 @@ def _parse_tickers(node: etree.Element) -> List[TickerText]:
 
 
 class BasePageScraper(BaseScraper):
-    domain = 'example.com'  # for filtering page entries
+    domain = 'example.base.page.com'  # for filtering page entries
 
     def startpoints(self, *args, **kwargs) -> Iterable[str]:
-        # yield es.Page.scan_urls(self.domain)
-        print(self.domain)
         for i, url in enumerate(es.Page.scan_urls(self.domain)):
+            if self.max_startpoints > 0 and i > self.max_startpoints:
+                break
             print(url)
             yield url
-            # if i > 10:
-            #     break
 
     @classmethod
     def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[es.Page]:
-        article = Article(resolved_url)
-        article.set_html(html)
-        article.parse()
+        a = Article(resolved_url)
+        a.set_html(html)
+        a.parse()
         parsed = Parsed(
-            keywords=article.meta_keywords,
-            tickers=_parse_tickers(article.clean_top_node))
+            keywords=a.meta_keywords,
+            tickers=_parse_tickers(a.clean_top_node))
         p = es.Page(
             from_url=from_url,
             resolved_url=resolved_url,
             http_status=http_status,
-            article_metadata=json.dumps(article.meta_data, ensure_ascii=False),
-            article_published_at=article.publish_date,
-            article_title=article.title,
-            article_text=article.text,
-            article_html=etree.tostring(
-                article.clean_top_node, encoding='utf-8').decode('utf-8'),
+            article_metadata=json.dumps(a.meta_data, ensure_ascii=False),
+            article_published_at=a.publish_date,
+            article_title=a.title,
+            article_text=a.text,
+            # article_html=etree.tostring(
+            #     article.clean_top_node, encoding='utf-8').decode('utf-8'),
             parsed=json.dumps(dataclasses.asdict(parsed), ensure_ascii=False),
             fetched_at=datetime.datetime.now(),)
         p.save()
-
         return [p]

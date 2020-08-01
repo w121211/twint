@@ -37,6 +37,8 @@ services:
         soft: -1
         hard: -1
     volumes:
+      # 為了與其他container共享同一個elasticsearch，將es的data儲存在本機的固定位置
+      # 這裡儲存在"~/docker-volumes/esdata"
       - ~/docker-volumes/esdata:/usr/share/elasticsearch/data
       # - data01:/usr/share/elasticsearch/data
     ports:

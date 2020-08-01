@@ -259,3 +259,58 @@ def test_moneydj_parse_page(page_html, expected):
     url = "test.url"
     parsed = moneydj.MoneydjPageScraper.parse(url, url, 200, page_html)
     assert doc_to_dict(parsed) == expected
+
+
+@pytest.mark.parametrize(
+    'page_html,expected', [
+        (
+            "https://www.moneydj.com/KMDJ/News/NewsViewer.aspx?a=f639f8d5-5d93-4cde-87f7-ee2646123a87&c=MB010000",
+            [
+                {'article_metadata': '{"description": "《美國經濟》ISM非製造業指數連3降 遜於預期。 精實新聞 '
+                 '2011-12-06 06:41:17 記者 賴宏昌 '
+                 '報導美國供應管理協會(ISM)5日公佈，2011年11月非製造業景氣判斷指數自前月的5", '
+                 '"keywords": "國家貿易,經濟指標", "og": {"title": '
+                 '"《美國經濟》ISM非製造業指數連3降 遜於預期-MoneyDJ理財網", "image": '
+                 '"https://www.moneydj.com/InfoSvc/Thumbnail.aspx?id=f639f8d5-5d93-4cde-87f7-ee2646123a87", '
+                 '"type": "website", "url": '
+                 '"https://www.moneydj.com/KMDJ/News/NewsViewer.aspx?a=f639f8d5-5d93-4cde-87f7-ee2646123a87", '
+                 '"description": '
+                 '"美國供應管理協會(ISM)5日公佈，2011年11月非製造業景氣判斷指數自前月的52.9降至52.0，創2010年1月(50.7)以來新低，為連續第3個月呈現下滑，但為連續第24個月高於景氣榮枯分界點(50)。根據Thomson '
+                 'R...", "site_name": "MoneyDJ理財網"}, "fb": {"app_id": '
+                 '122887437721589}}',
+                 'article_text': '精實新聞 2011-12-06 06:41:17 記者 賴宏昌 報導\n'
+                 '\n'
+                 '美國供應管理協會(ISM)5日公佈，2011年11月非製造業景氣判斷指數自前月的52.9降至52.0，創2010年1月(50.7)以來新低，為連續第3個月呈現下滑，但為連續第24個月高於景氣榮枯分界點(50)。根據Thomson '
+                 'Reuters的統計，經濟學家原先普遍預期11月指數將上揚至53.5。\n'
+                 '\n'
+                 '過去12個月美國非製造業景氣判斷指數平均值為54.8；區間高低點分別為59.7、52.0。彭博社統計顯示，在截至2007年12月為止的5年期間ISM非製造業景氣判斷指數平均值為56.1。\n'
+                 '\n'
+                 '11月非製造業景氣判斷指數當中的就業指數自53.3降至48.9，為過去3個月以來第2度跌破50。彭博社報導此為2009年3月以來最大單月跌幅。與2011年10月相比，5個產業回報就業機會增加，8個產業回報縮減，5個產業回報持平。',
+                 'article_title': '《美國經濟》ISM非製造業指數連3降 遜於預期',
+                 'entry_meta': '{"alternativeHeadline": "《美國經濟》ISM非製造業指數連3降 遜於預期-MoneyDJ理財網", '
+                 '"thumbnailUrl": '
+                 '"https://www.moneydj.com/InfoSvc/Thumbnail.aspx?id=f639f8d5-5d93-4cde-87f7-ee2646123a87", '
+                 '"image": '
+                 '"https://www.moneydj.com/InfoSvc/Thumbnail.aspx?id=f639f8d5-5d93-4cde-87f7-ee2646123a87", '
+                 '"description": '
+                 '"財經新聞讓您掌握國內外最新、最快的財經新聞，國際觀點橫掃財經新聞全貌、各種國際趨勢、金融商品趨勢、產業趨勢等財經新聞一應俱全。", '
+                 '"headline": "《美國經濟》ISM非製造業指數連3降 遜於預期-MoneyDJ理財網", "author": '
+                 '"賴宏昌", "url": '
+                 '"https://www.moneydj.com/KMDJ/News/NewsViewer.aspx?a=f639f8d5-5d93-4cde-87f7-ee2646123a87", '
+                 '"dateModified": "2011-12-06T06:41:17", "datePublished": '
+                 '"2011-12-06T06:41:17", "dateCreated": "2011-12-06T06:41:17", '
+                 '"articleSection": "asia", "isPartOf": "news"}',
+                 'entry_published_at': datetime.datetime(2011, 12, 6, 6, 41, 17),
+                 'from_url': 'test.url',
+                 'http_status': 200,
+                 'parsed': '{"keywords": ["國家貿易", "經濟指標"], "tickers": []}',
+                 'resolved_url': 'test.url'},
+
+            ]
+        ),
+    ], indirect=True)
+def test_base_parse_page(page_html, expected):
+    es.init()
+    url = "test.url"
+    parsed = moneydj.MoneydjPageScraper.parse(url, url, 200, page_html)
+    assert doc_to_dict(parsed) == expected

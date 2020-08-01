@@ -1,7 +1,7 @@
 from __future__ import annotations
 import datetime
 import json
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Tuple, Optional
 
 import dataclasses
 import elasticsearch
@@ -68,6 +68,7 @@ class Page(Document):
     article_title = Text()
     article_text = Text()
     article_html = Text()  # clean_top_node
+    article_summary = Text()  # meta.description
     parsed = Text()  # JSON for flexible data format
     created_at = Date(required=True)
     fetched_at = Date()  # null for not-yet-fetched
@@ -102,17 +103,19 @@ class Page(Document):
     @classmethod
     def get_or_create(cls, from_url: str) -> Page:
         try:
-            page = cls.get(id=from_url)
+            p = cls.get(id=from_url)
         except elasticsearch.NotFoundError:
-            page = cls(from_url=from_url)
-        return page
+            p = cls(from_url=from_url)
+        return p
 
     @classmethod
-    def scan_urls(cls, domain) -> Iterable[str]:
-        s = cls.search()
-        q = Q('wildcard', from_url=f'*{domain}*') \
-            & ~Q("term", http_status=200)
-        for page in s.filter(q).scan():
+    def scan_urls(cls, domain: Optional[str] = None) -> Iterable[str]:
+        if domain is None:
+            q = ~Q("term", http_status=200)
+        else:
+            q = Q('wildcard', from_url=f'*{domain}*') \
+                & ~Q("term", http_status=200)
+        for page in cls.search().filter(q).scan():
             yield page.from_url
 
 
