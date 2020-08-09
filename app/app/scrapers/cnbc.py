@@ -6,7 +6,7 @@ import logging
 import random
 import sys
 import urllib
-from typing import Tuple, List, Iterable
+from typing import Tuple, List, Iterable, Optional
 
 import aiohttp
 import elasticsearch
@@ -17,32 +17,32 @@ from newspaper import Article
 from omegaconf import DictConfig
 from requests.adapters import HTTPAdapter
 
-from .base import BaseScraper, BasePageScraper, TickerText, Parsed, ua
-from ..store import es
+from .base import BaseScraper, BasePageScraper, ua
+from ..store import es, model
 
 log = logging.getLogger(__name__)
 
 
-def _parse_tickers(node: etree.Element) -> List[TickerText]:
+def _parse_tickers(node: Optional[etree.Element]) -> Optional[List[model.TickerText]]:
+    if node is None:
+        return
+    # find all <a /> and de-duplicate their parents
     tks = []
+    for p in set([e.getparent() for e in node.cssselect('a')]):
+        text = etree.tostring(
+            p, method='text', encoding='utf-8').decode('utf-8').strip()
+        tt = model.TickerText(text)
 
-    if node is not None:
-        # find all <a> and de-duplicate their parents
-        for p in set([e.getparent() for e in node.cssselect('a')]):
-            text = etree.tostring(
-                p, method='text', encoding='utf-8').decode('utf-8').strip()
-            tt = TickerText(text)
-
-            for a in p.cssselect('a'):
-                href = a.get('href')
-                queries = dict(urllib.parse.parse_qsl(
-                    urllib.parse.urlsplit(href).query))
-                try:
-                    tt.labels.append((a.text, queries['symbol']))
-                except KeyError:
-                    continue
-            if len(tt.labels) > 0:
-                tks.append(tt)
+        for a in p.cssselect('a'):
+            href = a.get('href')
+            queries = dict(urllib.parse.parse_qsl(
+                urllib.parse.urlsplit(href).query))
+            try:
+                tt.labels.append((a.text, queries['symbol']))
+            except KeyError:
+                continue
+        if len(tt.labels) > 0:
+            tks.append(tt)
     return tks
 
 
@@ -71,32 +71,28 @@ class CnbcPageScraper(BasePageScraper):
                     yield u
 
     @classmethod
-    def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[es.Page]:
+    def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[model.Page]:
         article = Article(resolved_url)
         article.set_html(html)
         article.parse()
-        parsed = Parsed(
+        parsed = model.Parsed(
             keywords=article.meta_keywords,
             tickers=_parse_tickers(article.clean_top_node),)
-        p = es.Page(
+        return [model.Page(
             from_url=from_url,
             resolved_url=resolved_url,
             http_status=http_status,
-            article_metadata=json.dumps(article.meta_data, ensure_ascii=False),
+            article_metadata=article.meta_data,
             article_published_at=article.publish_date,
             article_title=article.title,
             article_text=article.text,
-            # article_html=etree.tostring(
-            #     article.clean_top_node, encoding='utf-8').decode('utf-8'),
-            parsed=json.dumps(dataclasses.asdict(parsed), ensure_ascii=False),
-            fetched_at=datetime.datetime.now(),)
-        p.save()
-
-        return [p]
+            article_summary=article.meta_data['description'] if 'description' in article.meta_data else None,
+            parsed=parsed,
+            fetched_at=datetime.datetime.now(),)]
 
 
-class OldCnbcScraper(BaseScraper):
-    """deprecated"""
+class DeprecatedCnbcScraper(BaseScraper):
+    """Deprecated"""
 
     def __init__(self, cfg: DictConfig = None, use_requests=False):
         super().__init__(cfg)

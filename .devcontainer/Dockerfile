@@ -50,5 +50,12 @@ RUN apt-get update \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/*
 
+# Install nodejs - https://github.com/nodesource/distributions/blob/master/README.md
+RUN curl -sL https://deb.nodesource.com/setup_14.x | sudo -E bash -
+RUN apt-get install -y nodejs
+
+# Install elasticdump - https://github.com/taskrabbit/elasticsearch-dump
+RUN npm install elasticdump -g
+
 # Switch back to dialog for any ad-hoc use of apt-get
 ENV DEBIAN_FRONTEND=dialog

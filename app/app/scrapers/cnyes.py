@@ -4,7 +4,7 @@ import dataclasses
 import json
 import logging
 import re
-from typing import Tuple, List, Iterable
+from typing import Tuple, List, Iterable, Optional
 
 import aiohttp
 import pandas as pd
@@ -15,22 +15,26 @@ from omegaconf import DictConfig
 from fake_useragent import UserAgent
 from lxml import etree
 
-from ..store import es
-from .base import BasePageScraper, TickerText, Parsed
+from .base import BaseScraper, BasePageScraper
+from ..store import es, model
 
 log = logging.getLogger(__name__)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
-class CnyesApiScraper:
-    def __init__(self, cfg: DictConfig = None):
-        super().__init__()
-        self.cfg = cfg
-        # self.start = datetime.datetime(*cfg.scraper.cnyes_api.start)
-        # self.until = datetime.datetime(cfg.scraper.cnyes_api.until)
-        self.start = datetime.datetime.now() - datetime.timedelta(days=30)
-        self.until = datetime.datetime.now()
-        self.error_urls = []
+class CnyesApiScraper(BaseScraper):
+    def startpoints(self, start: datetime.datetime, until: datetime.datetime) -> List[str]:
+        urls = []
+        while start < until:
+            _until = start + datetime.timedelta(days=30)
+            if _until > until:
+                _until = until
+            urls.append('https://news.cnyes.com/api/v3/news/category/headline' +
+                        f'?startAt={int(start.timestamp())}' +
+                        f'&endAt={int(_until.timestamp())}' +
+                        '&limit=100')
+            start = _until
+        return urls
 
     def parse(self, resp: aiohttp.ClientResponse, data: dict) -> Tuple[List[es.Page], List[str]]:
         pages, new_urls = [], []
@@ -53,19 +57,6 @@ class CnyesApiScraper:
                     entry_meta=json.dumps(e),)
                 pages.append(p)
         return pages, new_urls
-
-    def startpoints(self, start: datetime.datetime, until: datetime.datetime) -> List[str]:
-        urls = []
-        while start < until:
-            _until = start + datetime.timedelta(days=30)
-            if _until > until:
-                _until = until
-            urls.append('https://news.cnyes.com/api/v3/news/category/headline' +
-                        f'?startAt={int(start.timestamp())}' +
-                        f'&endAt={int(_until.timestamp())}' +
-                        '&limit=100')
-            start = _until
-        return urls
 
     async def worker(self, queue: asyncio.Queue):
         ua = UserAgent(verify_ssl=False, use_cache_server=False).random
@@ -90,33 +81,17 @@ class CnyesApiScraper:
                 finally:
                     queue.task_done()
 
-    async def run(self, n_workers=1, loop_every=None):
-        queue = asyncio.Queue()
-        es.init()
 
-        for url in self.startpoints(self.start, self.until):
-            queue.put_nowait(url)
-        tasks = [asyncio.create_task(self.worker(queue))
-                 for _ in range(n_workers)]
+def _parse_tickers(node: etree.Element) -> Optional[List[model.TickerText]]:
+    if node is None:
+        return
 
-        await queue.join()
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        # await asyncio.gather(*tasks)
-
-        df = pd.DataFrame({'url': self.error_urls})
-        df.to_csv("./error_urls.csv", index=False)
-
-
-def _parse_tickers(node: etree.Element) -> List[TickerText]:
     tickers = []
     # find all <a> and de-duplicate their parents
     for p in set([e.getparent() for e in node.cssselect('a')]):
         text = etree.tostring(
             p, method='text', encoding='utf-8').decode('utf-8').strip()
-        tt = TickerText(text)
-
+        tt = model.TickerText(text)
         for a in p.cssselect('a'):
             href = a.get('href')
             if 'invest.cnyes.com' in href:
@@ -140,25 +115,25 @@ class CnyesPageScraper(BasePageScraper):
     kw_regex = re.compile(r'^\/tag\/(\w+)')
 
     @classmethod
-    def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[es.Page]:
+    def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[model.Page]:
         article = Article(resolved_url)
         article.set_html(html)
         article.parse()
-        parsed = Parsed(
+        parsed = model.Parsed(
             keywords=_parse_keywords(html),
             tickers=_parse_tickers(article.clean_top_node),)
-        p = es.Page(
-            from_url=from_url,
-            resolved_url=resolved_url,
-            http_status=http_status,
-            article_metadata=json.dumps(article.meta_data, ensure_ascii=False),
-            article_published_at=article.publish_date,
-            article_title=article.title,
-            article_text=article.text,
-            # article_html=etree.tostring(
-            #     article.clean_top_node, encoding='utf-8').decode('utf-8'),
-            parsed=json.dumps(dataclasses.asdict(parsed), ensure_ascii=False),
-            fetched_at=datetime.datetime.now(),)
-        p.save()
-
-        return [p]
+        return [
+            model.Page(
+                from_url=from_url,
+                resolved_url=resolved_url,
+                http_status=http_status,
+                article_metadata=dict(article.meta_data),
+                article_published_at=article.publish_date,
+                article_title=article.title,
+                article_text=article.text,
+                # article_html=etree.tostring(
+                #     article.clean_top_node, encoding='utf-8').decode('utf-8'),
+                parsed=parsed,
+                fetched_at=datetime.datetime.now(),
+            )
+        ]
