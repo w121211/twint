@@ -1,3 +1,7 @@
+"""
+Setup (once only)
+$ python es.py
+"""
 from __future__ import annotations
 import collections
 import datetime
@@ -87,7 +91,7 @@ class Page(Document):
         }
 
     @classmethod
-    def jsondumps(cls, obj: dict):
+    def jsondumps(cls, d: dict):
         def dump(obj):
             if obj is None:
                 return None
@@ -98,10 +102,13 @@ class Page(Document):
                 print(type(obj))
                 raise Exception("Obj must be a dict")
 
-        for k, v in obj.items():
+        for k, v in d.items():
             if k in ("parsed", "entry_meta", "article_metadata"):
-                obj[k] = dump(v)
-        return obj
+                d[k] = dump(v)
+        for k, v in dict(d).items():
+            if v is None:
+                del d[k]
+        return d
 
     def save(self, **kwargs):
         if 'id' not in self.meta:
@@ -219,17 +226,16 @@ def connect():
     # Page.init()
 
 
-def setup(migrate: bool = False):
+def setup(move: bool = False):
     create_patterned_index(PAGE_ALIAS, PAGE_PATTERN)
     create_patterned_index(RSS_ALIAS, RSS_PATTERN)
-    if migrate:
+    if move:
         migrate("news_page", PAGE_ALIAS)
         migrate("news_rss", RSS_ALIAS)
 
 
 if __name__ == '__main__':
-    # seed()
     connect()
-
-    setup(migrate=True)
+    # seed()
+    setup(move=False)
     # migrate("news_rss", RSS_ALIAS)

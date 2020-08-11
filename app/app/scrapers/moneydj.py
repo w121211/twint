@@ -28,11 +28,14 @@ class MoneydjIndexScraper(BaseScraper):
     # domain = "www.moneydj.com/KMDJ/News/NewsRealList"
 
     def startpoints(self) -> List[str]:
-        start = self.cfg.scraper.moneydj_index.start
-        until = self.cfg.scraper.moneydj_index.until
-        urls = [f'https://www.moneydj.com/KMDJ/News/NewsRealList.aspx?index1={i}&a=MB010000'
-                for i in range(start, until)]
-        return urls
+        try:
+            return super().startpoints()
+        except:
+            start = self.cfg.scraper.moneydj_index.start
+            until = self.cfg.scraper.moneydj_index.until
+            urls = [f'https://www.moneydj.com/KMDJ/News/NewsRealList.aspx?index1={i}&a=MB010000'
+                    for i in range(start, until)]
+            return urls
 
     @classmethod
     def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[model.Page]:
@@ -69,10 +72,9 @@ class MoneydjPageScraper(BasePageScraper):
                 from_url=from_url,
                 resolved_url=resolved_url,
                 http_status=http_status,
-                entry_published_at=dateparse(published_at),
                 entry_meta=meta,
                 article_metadata=dict(article.meta_data),
-                article_published_at=article.publish_date,
+                article_published_at=dateparse(published_at),
                 article_title=article.title,
                 article_text=article.text,
                 parsed=parsed,

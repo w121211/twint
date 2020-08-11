@@ -25,8 +25,8 @@ class Page:
     from_url: str  # required
     resolved_url: str = None
     http_status: int = None
-    entry_urls: List[str] = dataclasses.field(default_factory=list)
-    entry_tickers: List[str] = dataclasses.field(default_factory=list)
+    entry_urls: List[str] = None
+    entry_tickers: List[str] = None
     entry_title: str = None
     entry_summary: str = None
     entry_published_at: datetime.datetime = None

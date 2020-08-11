@@ -10,17 +10,18 @@ from typing import Tuple, Iterable, List, Any, Optional, Union, Callable, Type
 
 import aiohttp
 import elasticsearch
+import hydra
+import msgpack
 import pandas as pd
+import redis
 from newspaper import Article
 from omegaconf import DictConfig
 from fake_useragent import UserAgent
 from lxml import etree
 
 from ..store import es, model
-from .. import fetch
 
 log = logging.getLogger(__name__)
-
 ua = UserAgent(verify_ssl=False)
 
 
@@ -30,13 +31,11 @@ class BaseScraper:
         self.cfg = cfg
         self.error_urls = []
         self.proxies = proxies
-        self.proxy_enabled = self.cfg.proxy.enabled
-        self.sleep_for = self.cfg.run.sleep_for
-        self.max_startpoints = self.cfg.run.max_startpoints
-
-    @abc.abstractmethod
-    def startpoints(self, *args, **kwargs) -> Iterable[Any]:
-        pass
+        self.redis = redis.Redis(host='redis', port=6379, db=0)
+        self.proxy_enabled: bool = self.cfg.proxy.enabled
+        self.sleep_for: int = self.cfg.run.sleep_for
+        self.max_startpoints: int = self.cfg.run.max_startpoints
+        self.startpoints_csv: str = self.cfg.run.startpoints_csv
 
     @classmethod
     @abc.abstractmethod
@@ -70,6 +69,8 @@ class BaseScraper:
             return True
 
     async def worker(self, queue: asyncio.Queue) -> None:
+        # Set `raise_for_status=True` to catch any unsuccessful fetch
+        # See: https://docs.aiohttp.org/en/stable/client_reference.html#aiohttp.ClientResponse.raise_for_status
         async with aiohttp.ClientSession(
                 raise_for_status=True,
                 headers=[("User-Agent", ua.random)],
@@ -81,24 +82,39 @@ class BaseScraper:
                     continue
 
                 try:
-                    args = {"proxy": None, "proxy_auth": None}
+                    # Is cached?
+                    cache = self.redis.get(url)
+                    if cache is not None:
+                        fetched = msgpack.unpackb(cache, raw=False)
 
-                    if self.proxy_enabled:
-                        px = random.choice(self.proxies).split(':')
-                        args = {
-                            "proxy": f"http://{px[0]}:{px[1]}",
-                            "proxy_auth": aiohttp.BasicAuth(px[2], px[3])
-                        }
-                    async with sess.get(url, **args) as resp:
-                        log.info('page fetching {}'.format(url))
-                        html = await resp.text()
-                        log.info('page downloaded {}'.format(url))
-                        parsed = self.parse(
-                            url, str(resp.url), resp.status, html)
-                        self.save(parsed)
-                        log.info('page scraped {}'.format(url))
+                    # No cache found, start fetching
+                    else:
+                        args = {"proxy": None, "proxy_auth": None}
+                        if self.proxy_enabled:
+                            px = random.choice(self.proxies).split(':')
+                            args = {
+                                "proxy": f"http://{px[0]}:{px[1]}",
+                                "proxy_auth": aiohttp.BasicAuth(px[2], px[3])
+                            }
+                        async with sess.get(url, **args) as resp:
+                            log.info('page fetching {}'.format(url))
+                            # Cache html & status
+                            fetched = {
+                                "resolved_url": str(resp.url),
+                                "http_status": resp.status,
+                                "html": await resp.text(),
+                            }
+                            self.redis.set(url, msgpack.packb(
+                                fetched, use_bin_type=True))
+                            log.info('page downloaded {}'.format(url))
 
-                        await asyncio.sleep(self.sleep_for)
+                            # Throttle
+                            await asyncio.sleep(self.sleep_for)
+
+                    # Parsing
+                    parsed = self.parse(url, **fetched)
+                    self.save(parsed)
+                    log.info('page scraped {}'.format(url))
 
                 except aiohttp.ClientResponseError as e:
                     try:
@@ -123,6 +139,10 @@ class BaseScraper:
 
                 finally:
                     queue.task_done()
+
+    def startpoints(self, *args, **kwargs) -> Iterable[str]:
+        data = pd.read_csv(hydra.utils.to_absolute_path(self.startpoints_csv))
+        return list(data["url"])
 
     async def _run(self, n_workers=1, *args, **kwargs) -> None:
         queue = asyncio.Queue()
@@ -164,10 +184,13 @@ class BasePageScraper(BaseScraper):
     domain = 'example.basepage.com'  # for filtering page entries
 
     def startpoints(self, *args, **kwargs) -> Iterable[str]:
-        for i, url in enumerate(es.Page.scan_urls(self.domain)):
-            if self.max_startpoints > 0 and i > self.max_startpoints:
-                break
-            yield url
+        try:
+            return super().startpoints()
+        except:
+            for i, url in enumerate(es.Page.scan_urls(self.domain)):
+                if self.max_startpoints > 0 and i > self.max_startpoints:
+                    break
+                yield url
 
     @classmethod
     def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[model.Page]:

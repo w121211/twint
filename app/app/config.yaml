@@ -4,10 +4,11 @@ run:
   loop_every: null  # in seconds
   sleep_for: 1  # sleep n seconds after each scraped
   max_startpoints: -1  # max number of startpoints, -1 refers to no restricted
+  startpoints_csv: null
 
 proxy:
   enabled: true
-  path: ./proxies.txt
+  csv: ./resource/proxies.txt
 
 store:
   es:
@@ -33,7 +34,7 @@ scraper:
     until: null # [year, month, day]
   moneydj_index:
     start: 1
-    until: 3  # max: 3500
+    until: 2  # max: 3500
 
 
     

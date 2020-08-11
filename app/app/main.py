@@ -1,3 +1,14 @@
+"""
+$ cd .../twint/app
+$ python -m app.main run.scraper=rss run.n_workers=1 run.loop_every=86400 
+$ python -m app.main run.scraper=multi run.n_workers=1 run.loop_every=86400
+$ python -m app.main run.scraper=cnyes_api run.n_workers=1
+$ python -m app.main run.scraper=cnyes_page run.n_workers=1
+$ python -m app.main run.scraper=cnbc run.n_workers=1 run.max_startpoints=1000 run.loop_every=3600 
+$ python -m app.main run.scraper=moneydj_index run.n_workers=1 scraper.moneydj_index.until=3500 run.startpoints_csv=./outputs/2020-08-09/17-13-53/error_urls.csv
+$ python -m app.main run.scraper=moneydj_page run.n_workers=1
+"""
+
 import asyncio
 import datetime
 import logging
@@ -8,20 +19,6 @@ import pandas as pd
 
 from .scrapers import cnbc, rss, cnyes, moneydj, multi
 from .store import es
-
-# log = logging.getLogger(__name__)
-# log.addHandler(logging.StreamHandler(sys.stdout))
-
-"""
-$ cd .../twint/app
-$ python -m app.main run.scraper=rss run.n_workers=1 run.loop_every=86400 
-$ python -m app.main run.scraper=multi run.n_workers=1 run.loop_every=86400
-$ python -m app.main run.scraper=cnyes_api run.n_workers=1
-$ python -m app.main run.scraper=cnyes_page run.n_workers=1
-$ python -m app.main run.scraper=cnbc run.n_workers=1 run.max_startpoints=1000 run.loop_every=3600 
-$ python -m app.main run.scraper=moneydj_index run.n_workers=1
-$ python -m app.main run.scraper=moneydj_page run.n_workers=1
-"""
 
 
 @hydra.main(config_path="config.yaml")
@@ -38,8 +35,10 @@ def main(cfg: DictConfig) -> None:
         "moneydj_index": moneydj.MoneydjIndexScraper,
         "moneydj_page": moneydj.MoneydjPageScraper,
     }
+
+    # read proxies
     data = pd.read_csv(hydra.utils.to_absolute_path(
-        './resource/proxies.txt'), sep=" ", header=None)
+        cfg.proxy.csv), sep=" ", header=None)
     proxies = list(data[0])
 
     es.connect()
