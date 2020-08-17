@@ -92,15 +92,13 @@ class Page(Document):
 
     @classmethod
     def jsondumps(cls, d: dict):
-        def dump(obj):
-            if obj is None:
+        def dump(o: Optional[dict]):
+            if o is None:
                 return None
-            # if isinstance(obj, (dict, collections.defaultdict)):
-            if isinstance(obj, dict):
-                return json.dumps(obj, ensure_ascii=False)
+            if isinstance(o, dict):
+                return json.dumps(o, ensure_ascii=False)
             else:
-                print(type(obj))
-                raise Exception("Obj must be a dict")
+                raise Exception("Input must be a dict")
 
         for k, v in d.items():
             if k in ("parsed", "entry_meta", "article_metadata"):
@@ -127,7 +125,7 @@ class Page(Document):
 
     @classmethod
     def scan_urls(cls, domain: Optional[str] = None) -> Iterable[str]:
-        if '/' in domain:
+        if isinstance(domain, str) and '/' in domain:
             raise Exception(
                 "Domain cannot include `/`, because elasticsearch wildcard doen't work with `/`")
         if domain is None:

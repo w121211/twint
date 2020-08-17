@@ -108,7 +108,7 @@ class RssScraper(BaseScraper):
                             proxy="http://{}:{}".format(proxy[0], proxy[1]),
                             proxy_auth=aiohttp.BasicAuth(proxy[2], proxy[3]),) as resp:
                         html = await resp.text()
-                        resp, html = await fetch.get(rss.url)
+                        # resp, html = await fetch.get(rss.url)
                         log.info("page downloaded: {}".format(rss.url))
                         self.parse(url, str(resp.url), resp.status, html, rss,
                                    self.cfg.scraper.rss.fetch_rss_every_n_seconds)

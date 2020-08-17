@@ -10,6 +10,7 @@ from typing import Tuple, List, Iterable, Optional
 
 import aiohttp
 import elasticsearch
+import hydra
 import pandas as pd
 import requests
 from lxml import etree
@@ -51,24 +52,30 @@ class CnbcPageScraper(BasePageScraper):
     domain = "cnbc.com"
 
     def startpoints(self) -> Iterable[str]:
-        i = 0
-        for hit in es.scan_twint('CNBC'):
-            if not hasattr(hit, "urls"):
-                continue
-            for u in hit.urls:
-                if self.max_startpoints > 0 and i > self.max_startpoints:
-                    return
-                try:
-                    p = es.Page.get(id=u)
-                    if p.http_status in [200, 404, 403]:
-                        continue
-                    i += 1
-                    print(u)
-                    yield u
-                except:
-                    i += 1
-                    print(u)
-                    yield u
+        try:
+            data = pd.read_csv(
+                hydra.utils.to_absolute_path(self.startpoints_csv))
+            for u in data["url"]:
+                yield u
+        except Exception as e:
+            i = 0
+            for hit in es.scan_twint('CNBC'):
+                if not hasattr(hit, "urls"):
+                    continue
+                for u in hit.urls:
+                    if self.max_startpoints > 0 and i > self.max_startpoints:
+                        return
+                    try:
+                        p = es.Page.get(id=u)
+                        if p.http_status in (200, 404, 403):
+                            continue
+                        i += 1
+                        print(u)
+                        yield u
+                    except elasticsearch.NotFoundError:
+                        i += 1
+                        print(u)
+                        yield u
 
     @classmethod
     def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str) -> List[model.Page]:
@@ -82,7 +89,7 @@ class CnbcPageScraper(BasePageScraper):
             from_url=from_url,
             resolved_url=resolved_url,
             http_status=http_status,
-            article_metadata=article.meta_data,
+            article_metadata=dict(article.meta_data),
             article_published_at=article.publish_date,
             article_title=article.title,
             article_text=article.text,

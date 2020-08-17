@@ -78,6 +78,7 @@ class BaseScraper:
             while True:
                 url = await queue.get()
                 if self._is_scraped(url):
+                    print(f"{url} is scraped")
                     queue.task_done()
                     continue
 
@@ -85,6 +86,7 @@ class BaseScraper:
                     # Is cached?
                     cache = self.redis.get(url)
                     if cache is not None:
+                        log.info('page cached {}'.format(url))
                         fetched = msgpack.unpackb(cache, raw=False)
 
                     # No cache found, start fetching
@@ -142,11 +144,11 @@ class BaseScraper:
 
     def startpoints(self, *args, **kwargs) -> Iterable[str]:
         data = pd.read_csv(hydra.utils.to_absolute_path(self.startpoints_csv))
-        return list(data["url"])
+        for u in data["url"]:
+            yield u
 
     async def _run(self, n_workers=1, *args, **kwargs) -> None:
         queue = asyncio.Queue()
-
         for p in self.startpoints(*args, **kwargs):
             queue.put_nowait(p)
         tasks = [asyncio.create_task(self.worker(queue))
@@ -185,8 +187,11 @@ class BasePageScraper(BaseScraper):
 
     def startpoints(self, *args, **kwargs) -> Iterable[str]:
         try:
-            return super().startpoints()
-        except:
+            for u in super().startpoints():
+                yield u
+        except Exception as e:
+            print(
+                f"possibly not given urls.csv, switch to custom startpoints method: {e}")
             for i, url in enumerate(es.Page.scan_urls(self.domain)):
                 if self.max_startpoints > 0 and i > self.max_startpoints:
                     break

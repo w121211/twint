@@ -110,7 +110,7 @@ ENV/
 # output
 *.csv
 # *.json
-*.txt
+# *.txt
 
 outputs/
 __pycache__
