@@ -39,19 +39,18 @@ class Rss(Document):
         if 'id' not in self.meta:
             self.meta.id = self.url
         self.n_retries = self.n_retries or 0
-        self.freq = self.freq
         # self.created_at = datetime.datetime.now()
         return super().save(**kwargs)
 
-    @classmethod
-    def get_or_create(cls, url, ticker=None) -> Rss:
-        try:
-            rss = cls.get(id=url)
-        except elasticsearch.NotFoundError:
-            # print(type(ticker))
-            rss = cls(url=url, ticker=ticker)
-            rss.save()
-        return rss
+    # @classmethod
+    # def get_or_create(cls, url, ticker=None) -> Rss:
+    #     try:
+    #         rss = cls.get(id=url)
+    #     except elasticsearch.NotFoundError:
+    #         # print(type(ticker))
+    #         rss = cls(url=url, ticker=ticker)
+    #         rss.save()
+    #     return rss
 
     # @classmethod
     # def is_existed(cls, src_url: str) -> bool:

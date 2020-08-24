@@ -1,5 +1,5 @@
 {
-    "python.pythonPath": "/usr/local/bin/python3.7",
+    "python.pythonPath": "/usr/local/bin/python",
     "python.linting.pylintEnabled": true,
     "python.linting.enabled": true,
     "python.testing.cwd": "${workspaceFolder}/app/tests",

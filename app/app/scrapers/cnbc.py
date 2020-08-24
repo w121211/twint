@@ -67,14 +67,14 @@ class CnbcPageScraper(BasePageScraper):
                         return
                     try:
                         p = es.Page.get(id=u)
-                        if p.http_status in (200, 404, 403):
+                        if p.http_status in (200, 404, 403, 502, 999):
                             continue
                         i += 1
-                        print(u)
+                        print(f"startpoint {i}: {u}")
                         yield u
                     except elasticsearch.NotFoundError:
                         i += 1
-                        print(u)
+                        print(f"startpoint {i}: {u}")
                         yield u
 
     @classmethod

@@ -31,7 +31,7 @@ class NoRssEntries(Exception):
 
 
 class RssScraper(BaseScraper):
-
+    
     @classmethod
     def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str, rss: es.Rss,
               fetch_rss_every_n_seconds=604800) -> List[es.Page]:
@@ -85,68 +85,74 @@ class RssScraper(BaseScraper):
             pages.append(p)
         return pages
 
+
     async def worker(self, queue: asyncio.Queue):
-        async with aiohttp.ClientSession(
+        async def fetch(url: str):
+            async with aiohttp.ClientSession(
                 raise_for_status=True,
                 headers=[("User-Agent", ua.random)],
                 timeout=aiohttp.ClientTimeout(total=60)) as sess:
-
-            while True:
-                url, ticker = await queue.get()  # startpoint
-                rss = es.Rss(
-                    url=url,
-                    ticker=ticker
-                )
-
-                # rss = es.Rss.get_or_create(url, ticker)
-
-                try:
-                    log.info("start scraping: {}".format(rss.url))
-                    proxy = random.choice(self.proxies).split(':')
-                    async with sess.get(
+                proxy = random.choice(self.proxies).split(':')
+                async with sess.get(
                             url,
                             proxy="http://{}:{}".format(proxy[0], proxy[1]),
                             proxy_auth=aiohttp.BasicAuth(proxy[2], proxy[3]),) as resp:
-                        html = await resp.text()
-                        # resp, html = await fetch.get(rss.url)
-                        log.info("page downloaded: {}".format(rss.url))
-                        self.parse(url, str(resp.url), resp.status, html, rss,
-                                   self.cfg.scraper.rss.fetch_rss_every_n_seconds)
-                        log.info("page parsed & saved: {}".format(rss.url))
-                        await asyncio.sleep(5)
+                    html = await resp.text()
+                    log.info(f"Page downloaded: {url}")
+                    await asyncio.sleep(3)  
+                    return html, resp
 
-                except (NoRssEntries, aiohttp.ClientResponseError) as e:
-                    rss.save(fetched_at=datetime.datetime.now(),
-                             n_retries=rss.n_retries + 1)
-                    log.info("fetch error & skiped: {}".format(rss.url))
-                    log.error(e)
+        while True:
+            try:
+                url, ticker = await queue.get()  # startpoint
+                # Get or create Rss item
+                try:
+                    rss = es.Rss.get(id=url)
+                except elasticsearch.NotFoundError:
+                    rss = es.Rss(
+                        url=url, 
+                    ticker=ticker, 
+                    n_retries=0, 
+                    freq=self.cfg.scraper.rss.fetch_rss_every_n_seconds)
+                log.info(f"Start scraping: {url}")
+                html, resp = await fetch(rss.url)
+                self.parse(url, str(resp.url), resp.status, html, rss, self.cfg.scraper.rss.fetch_rss_every_n_seconds)
+                log.info("Page parsed & saved: {}".format(url))
+
+            except (NoRssEntries, aiohttp.ClientResponseError) as e:
+                    log.info(f"Fetching error & skiped: {url}")
+                    log.error(type(e).__name__, e.args)
                     self.error_urls.append(url)
-
-                except Exception as e:
-                    log.info("scrape internal error & skiped: {}".format(rss.url))
-                    log.error(e)
-                    self.error_urls.append(url)
-
-                finally:
-                    queue.task_done()
+                    rss.fetched_at = datetime.datetime.now()
+                    rss.n_retries = rss.n_retries + 1
+                    rss.save()
+            except Exception as e:
+                log.info(f"Scraper error & skiped: {rss.url}")
+                log.error(type(e).__name__, e.args)
+                self.error_urls.append(url)
+            finally:
+                queue.task_done()
 
     def startpoints(self) -> Iterable[Tuple[str, str]]:
         df = pd.read_csv(utils.to_absolute_path(self.cfg.scraper.rss.entry))
         for _, r in df.iterrows():
-            if isinstance(r['ticker'], str):
-                tk = r['ticker']
+            # if isinstance(r['ticker'], str):
+            #     tk = r['ticker']
+            # else:
+            tk = r['ticker'] if isinstance(r['ticker'], str) else None
+            try:
+                rss = es.Rss.get(id=r['url'])
+            except elasticsearch.NotFoundError:
+                pass
             else:
-                tk = None
-
-            rss = es.Rss.get_or_create(r['url'], tk)
-            if rss.fetched_at is not None and not self.cfg.scraper.rss.force_fetch:
-                secs_to_sleep = (rss.fetched_at +
-                                 datetime.timedelta(seconds=rss.freq) -
-                                 datetime.datetime.now()
-                                 ).total_seconds()
-                if secs_to_sleep > 0:
-                    log.info("sleep for {} second: {}".format(
-                        int(secs_to_sleep), rss.url))
-                    continue
-
+                print(rss.to_dict())
+                if rss.fetched_at is not None and rss.freq is not None and not self.cfg.scraper.rss.force_fetch:
+                    secs_to_sleep = (rss.fetched_at +
+                                    datetime.timedelta(seconds=rss.freq) -
+                                    datetime.datetime.now()
+                                    ).total_seconds()
+                    if secs_to_sleep > 0:
+                        log.info("sleep for {} second: {}".format(
+                            int(secs_to_sleep), rss.url))
+                        continue
             yield r['url'], tk

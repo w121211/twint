@@ -1,17 +1,15 @@
 {
-	// "name": "app-nlp",
+	"name": "twint",
 	"dockerComposeFile": "docker-compose.yml",
 	"service": "app",
 	"workspaceFolder": "/workspace/twint",
 	// Set *default* container specific settings.json values on container create.
 	"settings": {
 		"terminal.integrated.shell.linux": "/bin/bash",
-		// "python.pythonPath": "/opt/conda/bin/python",
-		"python.pythonPath": "/usr/local/bin/python",
+		"python.pythonPath": "/opt/conda/bin/python",
 		"python.linting.enabled": true,
 		"python.linting.pylintEnabled": true,
-		// "python.linting.pylintPath": "/opt/conda/bin/pylint"
-		"python.linting.pylintPath": "/usr/local/bin/pylint"
+		"python.linting.pylintPath": "/opt/conda/bin/pylint"
 	},
 	// Add the IDs of extensions you want installed when the container is created.
 	"extensions": [

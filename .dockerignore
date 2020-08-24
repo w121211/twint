@@ -112,10 +112,10 @@ ENV/
 # *.json
 # *.txt
 
-outputs/
+outputs
 __pycache__
 .pytest_cache
 .DS_Store
 .env
-dump_*
+**/dump_*
 cache.sqlite
