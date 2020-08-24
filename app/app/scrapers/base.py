@@ -81,7 +81,6 @@ class BaseScraper:
                     print(f"{url} is scraped")
                     queue.task_done()
                     continue
-
                 try:
                     # Is cached?
                     cache = self.redis.get(url)

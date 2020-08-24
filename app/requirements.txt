@@ -1,6 +1,8 @@
-nest_asyncio
+aiohttp
+fake-useragent
+nest-asyncio
 hydra-core
-psycopg2
+# psycopg2
 newspaper3k
 feedparser
 peewee

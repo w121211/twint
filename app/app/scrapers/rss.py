@@ -19,7 +19,6 @@ from newspaper import Article, ArticleException
 from fake_useragent import UserAgent
 
 from ..store import es
-from .. import fetch
 from .base import BaseScraper, ua
 
 
@@ -31,7 +30,7 @@ class NoRssEntries(Exception):
 
 
 class RssScraper(BaseScraper):
-    
+
     @classmethod
     def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str, rss: es.Rss,
               fetch_rss_every_n_seconds=604800) -> List[es.Page]:
@@ -85,21 +84,20 @@ class RssScraper(BaseScraper):
             pages.append(p)
         return pages
 
-
     async def worker(self, queue: asyncio.Queue):
         async def fetch(url: str):
             async with aiohttp.ClientSession(
-                raise_for_status=True,
-                headers=[("User-Agent", ua.random)],
-                timeout=aiohttp.ClientTimeout(total=60)) as sess:
+                    raise_for_status=True,
+                    headers=[("User-Agent", ua.random)],
+                    timeout=aiohttp.ClientTimeout(total=60)) as sess:
                 proxy = random.choice(self.proxies).split(':')
                 async with sess.get(
-                            url,
-                            proxy="http://{}:{}".format(proxy[0], proxy[1]),
-                            proxy_auth=aiohttp.BasicAuth(proxy[2], proxy[3]),) as resp:
+                        url,
+                        proxy="http://{}:{}".format(proxy[0], proxy[1]),
+                        proxy_auth=aiohttp.BasicAuth(proxy[2], proxy[3]),) as resp:
                     html = await resp.text()
                     log.info(f"Page downloaded: {url}")
-                    await asyncio.sleep(3)  
+                    await asyncio.sleep(3)
                     return html, resp
 
         while True:
@@ -110,22 +108,23 @@ class RssScraper(BaseScraper):
                     rss = es.Rss.get(id=url)
                 except elasticsearch.NotFoundError:
                     rss = es.Rss(
-                        url=url, 
-                    ticker=ticker, 
-                    n_retries=0, 
-                    freq=self.cfg.scraper.rss.fetch_rss_every_n_seconds)
+                        url=url,
+                        ticker=ticker,
+                        n_retries=0,
+                        freq=self.cfg.scraper.rss.fetch_rss_every_n_seconds)
                 log.info(f"Start scraping: {url}")
                 html, resp = await fetch(rss.url)
-                self.parse(url, str(resp.url), resp.status, html, rss, self.cfg.scraper.rss.fetch_rss_every_n_seconds)
+                self.parse(url, str(resp.url), resp.status, html, rss,
+                           self.cfg.scraper.rss.fetch_rss_every_n_seconds)
                 log.info("Page parsed & saved: {}".format(url))
 
             except (NoRssEntries, aiohttp.ClientResponseError) as e:
-                    log.info(f"Fetching error & skiped: {url}")
-                    log.error(type(e).__name__, e.args)
-                    self.error_urls.append(url)
-                    rss.fetched_at = datetime.datetime.now()
-                    rss.n_retries = rss.n_retries + 1
-                    rss.save()
+                log.info(f"Fetching error & skiped: {url}")
+                log.error(type(e).__name__, e.args)
+                self.error_urls.append(url)
+                rss.fetched_at = datetime.datetime.now()
+                rss.n_retries = rss.n_retries + 1
+                rss.save()
             except Exception as e:
                 log.info(f"Scraper error & skiped: {rss.url}")
                 log.error(type(e).__name__, e.args)
@@ -148,9 +147,9 @@ class RssScraper(BaseScraper):
                 print(rss.to_dict())
                 if rss.fetched_at is not None and rss.freq is not None and not self.cfg.scraper.rss.force_fetch:
                     secs_to_sleep = (rss.fetched_at +
-                                    datetime.timedelta(seconds=rss.freq) -
-                                    datetime.datetime.now()
-                                    ).total_seconds()
+                                     datetime.timedelta(seconds=rss.freq) -
+                                     datetime.datetime.now()
+                                     ).total_seconds()
                     if secs_to_sleep > 0:
                         log.info("sleep for {} second: {}".format(
                             int(secs_to_sleep), rss.url))

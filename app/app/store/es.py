@@ -130,10 +130,10 @@ class Page(Document):
         if domain is None:
             q = ~Q("term", http_status=200)
         else:
-            q = Q('wildcard', from_url=domain.lower()) & \
+            q = Q('wildcard', from_url=f"*{domain.lower()}*") & \
                 ~Q("term", http_status=200)
-        for page in cls.search().filter(q).scan():
-            yield page.from_url
+        for hit in cls.search().filter(q).scan():
+            yield hit.from_url
 
 
 def seed():

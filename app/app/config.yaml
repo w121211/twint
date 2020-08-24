@@ -35,6 +35,9 @@ scraper:
   moneydj_index:
     start: 1
     until: 2  # max: 3500
+  megabank_api:
+    start: [2020, 8, 1]  # [year, month, day]
+    until: null # null for today
 
 
     
