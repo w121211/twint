@@ -119,3 +119,10 @@ __pycache__
 .env
 **/dump_*
 cache.sqlite
+
+outputs
+__pycache__
+.pytest_cache
+cache.sqlite
+resource
+cc_download*

@@ -31,27 +31,36 @@ class NoRssEntries(Exception):
 
 class RssScraper(BaseScraper):
 
+    @staticmethod
+    def _get_freq(entries: List[feedparser.FeedParserDict], fetch_rss_every_n_seconds: int) -> Tuple[int, datetime.datetime]:
+        # update rss.freq based on entry's published time
+        freq = fetch_rss_every_n_seconds
+        last_published_at = None
+        try:
+            stamps = [datetime.datetime.fromtimestamp(time.mktime(e['published_parsed']))
+                for e in entries]
+            stamps.sort()
+            if len(stamps) == 1:
+                freq = fetch_rss_every_n_seconds
+            else:
+                freq = int(min((stamps[-1] - stamps[0]).total_seconds() / 3,
+                            fetch_rss_every_n_seconds))
+            last_published_at = stamps[-1]
+        except:
+            pass
+        return freq, last_published_at
+
     @classmethod
     def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str, rss: es.Rss,
-              fetch_rss_every_n_seconds=604800) -> List[es.Page]:
+              fetch_rss_every_n_seconds: int=604800) -> List[es.Page]:
         feed = feedparser.parse(html)
         if len(feed['entries']) == 0:
             raise NoRssEntries(
                 "No entries found: {}".format(str(resolved_url)))
 
-        # update rss.freq based on entry's published time
-        stamps = [datetime.datetime.fromtimestamp(time.mktime(d['published_parsed']))
-                  for d in feed['entries']]
-        stamps.sort()
-        if len(stamps) == 1:
-            freq = fetch_rss_every_n_seconds
-        else:
-            freq = int(min((stamps[-1] - stamps[0]).total_seconds() / 3,
-                           fetch_rss_every_n_seconds))
-        rss.freq = freq
+        rss.freq, rss.last_published_at = _get_freq(feed['entries'], fetch_rss_every_n_seconds)
         rss.n_retries = 0
         rss.fetched_at = datetime.datetime.now()
-        rss.last_published_at = stamps[-1]
         rss.save()
 
         # create or update pages (as entrypoints, no-fetching)
@@ -135,9 +144,6 @@ class RssScraper(BaseScraper):
     def startpoints(self) -> Iterable[Tuple[str, str]]:
         df = pd.read_csv(utils.to_absolute_path(self.cfg.scraper.rss.entry))
         for _, r in df.iterrows():
-            # if isinstance(r['ticker'], str):
-            #     tk = r['ticker']
-            # else:
             tk = r['ticker'] if isinstance(r['ticker'], str) else None
             try:
                 rss = es.Rss.get(id=r['url'])

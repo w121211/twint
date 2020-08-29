@@ -6,7 +6,7 @@ from . import base, cnbc, cnyes, moneydj, yahoo, megabank
 from ..store import es
 
 
-class MultiDomainPageScraper(base.BaseScraper):
+class OndemandScraper(base.BaseScraper):
     parsers = (
         cnbc.CnbcPageScraper,
         cnyes.CnyesPageScraper,

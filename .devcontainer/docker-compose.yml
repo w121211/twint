@@ -19,7 +19,7 @@ services:
       - 8888:8888
       
     # command: sleep infinity
-    command: bash -c "jupyter notebook --ip 0.0.0.0 --port 8888 --no-browser --allow-root && sleep infinity"
+    command: bash -c "jupyter notebook --ip 0.0.0.0 --port 8888 --no-browser --NotebookApp.token='' --NotebookApp.password='' --allow-root && sleep infinity"
     
   es:
     # image: docker.elastic.co/elasticsearch/elasticsearch:7.6.2
@@ -56,11 +56,12 @@ services:
 
   redis:
     image: redis:latest
-    command: redis-server --appendonly yes
     volumes:
       - data02:/data
-    ports:
-      - 6379:6379
+      - ./library-scripts/redis.conf:/usr/local/etc/redis/redis.conf
+    # ports:
+    #   - 6379:6379
+    command: redis-server /usr/local/etc/redis/redis.conf
 
   # pg:
   #   image: postgres:latest

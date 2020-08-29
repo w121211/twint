@@ -13,3 +13,4 @@ requests-cache
 get-all-tickers
 redis
 msgpack
+news-please
