@@ -7,14 +7,13 @@ $ python -m app.main run.scraper=cnyes_page run.n_workers=1
 $ python -m app.main run.scraper=cnbc run.n_workers=1 run.max_startpoints=1000 run.loop_every=1800 
 $ python -m app.main run.scraper=moneydj_index run.n_workers=1 scraper.moneydj_index.until=3500 run.startpoints_csv=./outputs/2020-08-09/17-13-53/error_urls.csv
 $ python -m app.main run.scraper=moneydj_page run.n_workers=1
-$ python -m app.main run.scraper=yahoo run.n_workers=1
+$ python -m app.main run.scraper=yahoo run.n_workers=1 run.loop_every=1800 run.max_startpoints=1000
 $ python -m app.main run.scraper=megabank_api scraper.megabank_api.start=[2020,1,1]
 $ python -m app.main run.scraper=megabank_page
 
 $ chmod +x ./start.sh
 # source ./start.sh
 """
-
 import asyncio
 import datetime
 import logging

@@ -29,36 +29,37 @@ class NoRssEntries(Exception):
     pass
 
 
-class RssScraper(BaseScraper):
+def _get_freq(entries: List[feedparser.FeedParserDict], fetch_rss_every_n_seconds: int) -> Tuple[int, datetime.datetime]:
+    # update rss.freq based on entry's published time
+    freq = fetch_rss_every_n_seconds
+    last_published_at = None
+    try:
+        stamps = [datetime.datetime.fromtimestamp(time.mktime(e['published_parsed']))
+                  for e in entries]
+        stamps.sort()
+        if len(stamps) == 1:
+            freq = fetch_rss_every_n_seconds
+        else:
+            freq = int(min((stamps[-1] - stamps[0]).total_seconds() / 3,
+                           fetch_rss_every_n_seconds))
+        last_published_at = stamps[-1]
+    except:
+        pass
+    return freq, last_published_at
 
-    @staticmethod
-    def _get_freq(entries: List[feedparser.FeedParserDict], fetch_rss_every_n_seconds: int) -> Tuple[int, datetime.datetime]:
-        # update rss.freq based on entry's published time
-        freq = fetch_rss_every_n_seconds
-        last_published_at = None
-        try:
-            stamps = [datetime.datetime.fromtimestamp(time.mktime(e['published_parsed']))
-                for e in entries]
-            stamps.sort()
-            if len(stamps) == 1:
-                freq = fetch_rss_every_n_seconds
-            else:
-                freq = int(min((stamps[-1] - stamps[0]).total_seconds() / 3,
-                            fetch_rss_every_n_seconds))
-            last_published_at = stamps[-1]
-        except:
-            pass
-        return freq, last_published_at
+
+class RssScraper(BaseScraper):
 
     @classmethod
     def parse(cls, from_url: str, resolved_url: str, http_status: int, html: str, rss: es.Rss,
-              fetch_rss_every_n_seconds: int=604800) -> List[es.Page]:
+              fetch_rss_every_n_seconds: int = 604800) -> List[es.Page]:
         feed = feedparser.parse(html)
         if len(feed['entries']) == 0:
             raise NoRssEntries(
                 "No entries found: {}".format(str(resolved_url)))
 
-        rss.freq, rss.last_published_at = _get_freq(feed['entries'], fetch_rss_every_n_seconds)
+        rss.freq, rss.last_published_at = _get_freq(
+            feed['entries'], fetch_rss_every_n_seconds)
         rss.n_retries = 0
         rss.fetched_at = datetime.datetime.now()
         rss.save()
@@ -98,7 +99,7 @@ class RssScraper(BaseScraper):
             async with aiohttp.ClientSession(
                     raise_for_status=True,
                     headers=[("User-Agent", ua.random)],
-                    timeout=aiohttp.ClientTimeout(total=60)) as sess:
+                    timeout=aiohttp.ClientTimeout(total=30)) as sess:
                 proxy = random.choice(self.proxies).split(':')
                 async with sess.get(
                         url,

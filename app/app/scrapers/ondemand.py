@@ -22,14 +22,6 @@ class OndemandScraper(base.BaseScraper):
         megabank.MegabankPageScraper,
     )
 
-    def startpoints(self) -> Iterable[str]:
-        excluded = [scp.domain for scp in self.excludes]
-        for i, u in enumerate(es.Page.scan_urls()):
-            if self.max_startpoints > 0 and i > self.max_startpoints:
-                break
-            print(u)
-            yield u
-
     @classmethod
     def select_parser(cls, from_url: str) -> Type[base.BasePageScraper]:
         for p in cls.parsers:

@@ -66,6 +66,8 @@ class Page(Document):
     from_url = Keyword(required=True)
     resolved_url = Keyword()
     http_status = Integer()
+    n_retries = Integer()
+
     entry_urls = Keyword(index=False, multi=True)  # array
     entry_tickers = Keyword(index=False, multi=True)  # array
     entry_title = Text(index=False)
@@ -110,8 +112,8 @@ class Page(Document):
     def save(self, **kwargs):
         if 'id' not in self.meta:
             self.meta.id = self.from_url
-        if self.created_at is None:
-            self.created_at = datetime.datetime.now()
+        self.created_at = self.created_at or datetime.datetime.now()
+        self.n_retries = self.n_retries or 0
         return super().save(**kwargs)
 
     # @classmethod
@@ -123,15 +125,17 @@ class Page(Document):
     #     return p
 
     @classmethod
-    def scan_urls(cls, domain: Optional[str] = None) -> Iterable[str]:
+    def scan_urls(cls, domain: Optional[str] = None, max_retries=5) -> Iterable[str]:
         if isinstance(domain, str) and '/' in domain:
             raise Exception(
                 "Domain cannot include `/`, because elasticsearch wildcard doen't work with `/`")
         if domain is None:
-            q = ~Q("term", http_status=200)
+            q = ~Q("term", http_status=200) \
+                & Q("range", n_retries={"lte": max_retries})
         else:
-            q = Q('wildcard', from_url=f"*{domain.lower()}*") & \
-                ~Q("term", http_status=200)
+            q = Q('wildcard', from_url=f"*{domain.lower()}*") \
+                & ~Q("term", http_status=200) \
+                & Q("range", n_retries={"lte": max_retries})
         for hit in cls.search().filter(q).scan():
             yield hit.from_url
 

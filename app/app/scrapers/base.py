@@ -33,7 +33,7 @@ class BaseScraper:
         self.proxies = proxies
         self.redis = redis.Redis(host='redis', port=6379, db=0)
         self.proxy_enabled: bool = self.cfg.proxy.enabled
-        self.sleep_for: int = self.cfg.run.sleep_for
+        self.throttle: int = self.cfg.run.throttle
         self.max_startpoints: int = self.cfg.run.max_startpoints
         self.startpoints_csv: str = self.cfg.run.startpoints_csv
 
@@ -58,88 +58,90 @@ class BaseScraper:
             page = es.Page.get(id=url)
             if page.http_status != 200:
                 return False
-            log.info(f"page existed and scraped (code=200), skip {url}")
+            log.info(f"Page existed and scraped (code=200), skip {url}")
             return True
         except elasticsearch.NotFoundError:
             return False
-        except Exception as e:
-            log.info(f"scraper unexpected error & skiped: {e}")
-            log.error(e)
-            self.error_urls.append(url)
-            return True
 
     async def worker(self, queue: asyncio.Queue) -> None:
-        # Set `raise_for_status=True` to catch any unsuccessful fetch
-        # See: https://docs.aiohttp.org/en/stable/client_reference.html#aiohttp.ClientResponse.raise_for_status
-        async with aiohttp.ClientSession(
-                raise_for_status=True,
-                headers=[("User-Agent", ua.random)],
-                timeout=aiohttp.ClientTimeout(total=60)) as sess:
-            while True:
+        async def fetch(url: str):
+            # Set `raise_for_status=True` to catch any unsuccessful fetch
+            # See: https://docs.aiohttp.org/en/stable/client_reference.html#aiohttp.ClientResponse.raise_for_status
+            async with aiohttp.ClientSession(
+                    raise_for_status=True,
+                    headers=[("User-Agent", ua.random)],
+                    timeout=aiohttp.ClientTimeout(total=30)) as sess:
+
+                # Proxy setup
+                args = {"proxy": None, "proxy_auth": None}
+                if self.proxy_enabled:
+                    px = random.choice(self.proxies).split(':')
+                    args = {
+                        "proxy": f"http://{px[0]}:{px[1]}",
+                        "proxy_auth": aiohttp.BasicAuth(px[2], px[3])
+                    }
+
+                async with sess.get(url, **args) as resp:
+                    html = await resp.text("big5hkscs") if resp.charset == "big5" else await resp.text()
+                    log.info(f"Page downloaded: {url}")
+                    await asyncio.sleep(self.throttle)
+                    return html, resp
+
+        while True:
+            try:
+                # Start scraping
                 url = await queue.get()
                 if self._is_scraped(url):
-                    print(f"{url} is scraped")
+                    log.info(f"{url} is scraped, skip")
                     queue.task_done()
                     continue
+
+                # Is cached?
+                cache = self.redis.get(url)
+                if cache is not None:
+                    log.info(f"Page cached {url}, use cache")
+                    fetched = msgpack.unpackb(cache, raw=False)
+                else:
+                    html, resp = await fetch(url)
+                    fetched = {
+                        "resolved_url": str(resp.url),
+                        "http_status": resp.status,
+                        "html": html,
+                    }
+                    self.redis.set(url, msgpack.packb(
+                        fetched, use_bin_type=True))
+
+                # Parsing
+                self.save(self.parse(url, **fetched))
+                log.info(f'Page scraped {url}')
+
+            except aiohttp.ClientResponseError as e:
                 try:
-                    # Is cached?
-                    cache = self.redis.get(url)
-                    if cache is not None:
-                        log.info('page cached {}'.format(url))
-                        fetched = msgpack.unpackb(cache, raw=False)
-
-                    # No cache found, start fetching
-                    else:
-                        args = {"proxy": None, "proxy_auth": None}
-                        if self.proxy_enabled:
-                            px = random.choice(self.proxies).split(':')
-                            args = {
-                                "proxy": f"http://{px[0]}:{px[1]}",
-                                "proxy_auth": aiohttp.BasicAuth(px[2], px[3])
-                            }
-                        async with sess.get(url, **args) as resp:
-                            log.info('page fetching {}'.format(url))
-                            # Cache html & status
-                            fetched = {
-                                "resolved_url": str(resp.url),
-                                "http_status": resp.status,
-                                "html": await resp.text(),
-                            }
-                            self.redis.set(url, msgpack.packb(
-                                fetched, use_bin_type=True))
-                            log.info('page downloaded {}'.format(url))
-
-                            # Throttle
-                            await asyncio.sleep(self.sleep_for)
-
-                    # Parsing
-                    parsed = self.parse(url, **fetched)
-                    self.save(parsed)
-                    log.info('page scraped {}'.format(url))
-
-                except aiohttp.ClientResponseError as e:
-                    try:
-                        p = es.Page.get(id=url)
-                        p.update(
-                            resolved_url=str(e.request_info.real_url),
-                            http_status=e.status,)
-                    except elasticsearch.NotFoundError:
-                        p = es.Page(
-                            from_url=url,
-                            resolved_url=str(e.request_info.real_url),
-                            http_status=e.status,)
-                        p.save()
-                    log.info("fetch error & skiped: {}".format(e))
-                    log.error(e)
-                    self.error_urls.append(url)
-
+                    p = es.Page.get(id=url)
+                    n_retries = p.n_retries + 1
+                    p.update(
+                        resolved_url=str(e.request_info.real_url),
+                        http_status=e.status,
+                        n_retries=n_retries)
+                except elasticsearch.NotFoundError:
+                    p = es.Page(
+                        from_url=url,
+                        resolved_url=str(e.request_info.real_url),
+                        http_status=e.status,
+                        n_retries=1,)
+                    p.save()
                 except Exception as e:
-                    log.info("scrape internal error & skiped: {}".format(e))
-                    log.error(e)
+                    log.info(f"Internal error, skip: {e}")
+                    log.error(type(e).__name__, e.args)
                     self.error_urls.append(url)
 
-                finally:
-                    queue.task_done()
+            except Exception as e:
+                log.info(f"Internal error, skip: {e}")
+                log.error(type(e).__name__, e.args)
+                self.error_urls.append(url)
+
+            finally:
+                queue.task_done()
 
     def startpoints(self, *args, **kwargs) -> Iterable[str]:
         data = pd.read_csv(hydra.utils.to_absolute_path(self.startpoints_csv))
@@ -190,7 +192,7 @@ class BasePageScraper(BaseScraper):
                 yield u
         except Exception as e:
             print(
-                f"possibly not given urls.csv, switch to custom startpoints method: {e}")
+                f"Possibly not given urls.csv, switch to custom startpoints method: {e}")
             for i, url in enumerate(es.Page.scan_urls(self.domain)):
                 if self.max_startpoints > 0 and i > self.max_startpoints:
                     break

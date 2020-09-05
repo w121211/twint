@@ -20,8 +20,11 @@ class YahooPageScraper(BasePageScraper):
         a = Article(resolved_url)
         a.set_html(html)
         a.parse()
-        parsed = model.Parsed(
-            keywords=[s.strip() for s in a.meta_data['news_keywords'].split(",")])
+        try:
+            parsed = model.Parsed(
+                keywords=[s.strip() for s in a.meta_data['news_keywords'].split(",")])
+        except:
+            parsed = None
         return [
             model.Page(
                 from_url=from_url,

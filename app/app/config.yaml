@@ -2,7 +2,7 @@ run:
   scraper: cnyes
   n_workers: 1
   loop_every: null  # in seconds
-  sleep_for: 1  # sleep n seconds after each scraped
+  throttle: 1  # sleep n seconds after each fetch
   max_startpoints: -1  # max number of startpoints, -1 refers to no restricted
   startpoints_csv: null
 
